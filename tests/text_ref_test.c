@@ -8,7 +8,7 @@
  * the pen, the one whose offset is nearer the previous glyph's, plus that phase's ink offset; a glyph with one
  * phase (figures, .) at the rounded pen as before; restated here too.
  * How close that lands to the font's own spacing is tests/text_spacing_test.py's question. Every string below, in S M L, THEME on SURF and TEXT on BG, in every palette: the end pen and every
- * pixel must be identical (GREY expands its gray with G = 2 R, the gray rule; the prototype's G = 2 R + R / 16
+ * pixel must be identical (MRC expands its gray with G = 2 R, the gray rule; the prototype's G = 2 R + R / 16
  * differed by one green LSB there, and that is the only difference to the prototype's renders). */
 #include <math.h>
 #include <stdint.h>
@@ -43,7 +43,9 @@ static void ref_ramp(uint16_t fg, uint16_t bg)
     const uint8_t *cv = ux.light ? CURVE_LIGHT : CURVE_DARK;
     for (uint32_t a = 0; a < 16u; a++) {
         uint32_t out = 0;
-        if (ux.mono) {
+        /* MRC: on the red channel only between two greys (R = B, G = 2 R); its cream and mint blend per channel */
+        if (ux.mono && (fg >> 11) == (fg & 31u) && ((fg >> 5) & 63u) == 2u * (fg & 31u) &&
+            (bg >> 11) == (bg & 31u) && ((bg >> 5) & 63u) == 2u * (bg & 31u)) {
             int32_t x = bg >> 11, y = fg >> 11;
             rv[a] = ux_gray((uint32_t)(x + (((y - x) * (int32_t)cv[a] + 128) >> 8)));
             continue;

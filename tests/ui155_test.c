@@ -3,7 +3,7 @@
 /* 1.5.5, fixes and UI, on the real UI sources (with the stubs of tests/ui_test.c):
  *   PAN        (#199) a bipolar value (-64..63, F_BIPCT) reads -100..+100 %: +100 at the top (was +98), the stored
  *              range and the sound unchanged; the MIXER strip's number the same
- *   (and AUTOMATION KNOB 3, SELECT PAGE, PROJECT ERASE, CLEAN INIT; OCT- on the press as in 1.5.1 (1.5.6: #205 taken
+ *   (and AUTOMATION KNOB 3, SELECT PAGE, CLEAN INIT; OCT- on the press as in 1.5.1 (1.5.6: #205 taken
  *   out), next to EUCLID, FILL)
  * Built and run by tests/run_tests.sh. */
 #define UI_TEST_NO_MAIN 1
@@ -42,64 +42,6 @@ static int pan_range(void)
     ok = fmt_is(&TP[P_M1AMT], 63, "+100") && fmt_is(&TP[P_ED_FLT], -64, "-100") &&
          TP[P_PAN].min == -64 && TP[P_PAN].max == 63 && TP[P_PAN].def == 0;
     bad += check("  every bipolar value the same (MOD AMT, ENV FLT); the stored range -64..63 as before", ok);
-    return bad;
-}
-
-/* --------------------------------------------- AUTOMATION's KNOB 3 --- */
-static uint32_t ev_at(uint32_t r) { uint16_t rw[EV_ROWS]; return r < ev_list(rw) ? rw[r] : 0xFFFFu; }
-static uint32_t ev_sel(void) { uint16_t rw[EV_ROWS]; return ev_cur(rw, 0); }
-static void kslow(uint32_t role, int32_t s)        /* a knob turned by s detents, unaccelerated */
-{
-    memset(ui.enc_t, 0, sizeof ui.enc_t);
-    turn(role, s);
-}
-static int auto_k3(void)
-{
-    int bad = 0, ok = 1, i;
-    track_t *t;
-    uint32_t r0, c0, c1, id1;
-    ui_power_on();
-    song.sel = 0;
-    t = &trk[0];
-    track_defaults_steps(t);
-    t->p[P_SLEN] = 16;
-    go_home();
-    ui.cursor = 0;
-    go_page(GR_EVENTS);
-    frame();
-    kslow(EN_K1, 2);                                    /* + ADD on step 1: a lock of the page's first parameter */
-    press(B_OCTUP);
-    kslow(EN_K1, 1);
-    kslow(EN_K3, 3);                                    /* .. and one three parameters on */
-    press(B_OCTUP);
-    ok = motion_count(t) == 2u && (ev_at(2) >> 8) == EVK_REC && (ev_at(3) >> 8) == EVK_REC;
-    c0 = ev_at(2);
-    c1 = ev_at(3);
-    id1 = MOTION_ID(&motion.event[c1 & 0xFFu]);
-    ok &= MOTION_ID(&motion.event[c0 & 0xFFu]) < id1 && ui.ev_row == 3u && ev_sel() == c1;
-    bad += check("AUTOMATION: two locks on step 1, the second (a later parameter) selected", ok);
-    r0 = ui.ev_row;
-    for (i = 0; i < 8; i++) {                           /* KNOB 3 left, past the first one's parameter */
-        kslow(EN_K3, -1);
-        ok &= ui.ev_row == r0 && ev_sel() == c1 && ev_at(2) == c0 && ev_at(3) == c1;
-    }
-    ok &= MOTION_ID(&motion.event[c1 & 0xFFu]) < MOTION_ID(&motion.event[c0 & 0xFFu]);
-    bad += check("  KNOB 3 (#199): the row stays where it is and selected while its parameter goes past the other's",
-        ok);
-    ok = 1;
-    for (i = 0; i < 8; i++) {                           /* .. and back */
-        kslow(EN_K3, 1);
-        ok &= ui.ev_row == r0 && ev_sel() == c1 && ev_at(2) == c0;
-    }
-    ok &= MOTION_ID(&motion.event[c1 & 0xFFu]) > MOTION_ID(&motion.event[c0 & 0xFFu]);
-    bad += check("  and back to the right: no jump either way", ok);
-    kslow(EN_K1, -1);                                    /* the first record: its rows as they were */
-    ok = ev_sel() == c0;
-    for (i = 0; i < 4; i++) {
-        kslow(EN_K3, 1);
-        ok &= ui.ev_row == 2u && ev_sel() == c0 && ev_at(3) == c1;
-    }
-    bad += check("  the other row the same (a step's records listed in the order they were added)", ok);
     return bad;
 }
 
@@ -165,23 +107,25 @@ static int select_page(void)
     turn(EN_SELECT, 2);
     ok &= title_is("LFO DEST");
     turn(EN_SELECT, -3);
-    ok &= title_is("MOD");                              /* (LFO LFO 2 LFO DEST MOD, round) */
+    ok &= title_is("MOD");                              /* (MOD LFO LFO 2 LFO DEST, round) */
     ok &= song.g[G_BPM] == b0;
     bad += check("  PAGE: SELECT steps the family's pages, a detent each, round both ways; the tempo stays", ok);
 
     go_home(); frame();
     turn(EN_SELECT, 1);
-    ok = title_is("MIXER");
+    ok = title_is("CLOCK");                             /* (MRC: the round is MIXER, HOME, CLOCK; HOME is the second) */
     turn(EN_SELECT, 1);
-    ok &= title_is("CLOCK");
+    ok &= title_is("MIXER");
     turn(EN_SELECT, 1);
     ok &= ui.home;
+    turn(EN_SELECT, -1);
+    ok &= title_is("MIXER");
     turn(EN_SELECT, -1);
     ok &= title_is("CLOCK");
     b0 = song.g[G_BPM];
     turn(EN_K1, 1);
     ok &= song.g[G_BPM] == b0 + 1;                      /* CLOCK's KNOB 1: the tempo */
-    bad += check("  PAGE: HOME -> MIXER -> CLOCK -> HOME (as HOME's taps), back too; CLOCK's KNOB 1 still the tempo", ok);
+    bad += check("  PAGE: MIXER > HOME > CLOCK round (as HOME's taps), back too; CLOCK's KNOB 1 still the tempo", ok);
 
     go_title("EDIT 1"); frame();
     for (i = 0; i < 12u && ok; i++) {                   /* EDIT's pages: only the ones the engine shows */
@@ -190,8 +134,12 @@ static int select_page(void)
     }
     go_title("SONG"); frame();
     turn(EN_SELECT, 1);
-    ok &= title_is("SONG");                             /* (GLO: one page) */
-    bad += check("  PAGE: EDIT's round is the engine's pages; a family of one page stays", ok);
+    ok &= title_is("CLEAR");                            /* (MRC: GLO's four, PRESETS PATTERNS SONG CLEAR) */
+    turn(EN_SELECT, 1);
+    ok &= title_is("PRESETS");
+    turn(EN_SELECT, -1);
+    ok &= title_is("CLEAR");
+    bad += check("  PAGE: EDIT's round is the engine's pages; GLO's round SONG > CLEAR > PRESETS (MRC)", ok);
 
     go_title("ENV"); frame();
     b0 = song.g[G_BPM];
@@ -267,52 +215,7 @@ static int oct_press(void)
     return bad;
 }
 
-/* ------------------------------------------------- SAVE > PROJECT ERASE --- */
-static int project_erase_ui(void)
-{
-    int bad = 0, ok;
-    char a[24], b[24];
-    ui_power_on();
-    song.playing = 0;
-    project_save_as(1, "DUB SKETCH");
-    project_save_as(2, "KEEP ME");
-    song.g[G_SLOT] = 2;                                 /* B */
-    go_page(GR_SLOTS); frame();
-    ok = act_cols() == 14u && str_eq(act_name(1), "ERASE") && str_eq(act_name(2), "LOAD") && str_eq(act_name(3), "SAVE");
-    turn(EN_K2, 1);
-    ok &= ui.act == 2u && act_ready();
-    press(B_OCTUP);
-    ok &= ui.confirm == CF_ERASE_PROJ && ui.confirm_trk == 1u;
-    confirm_text(a, b);
-    ok &= str_eq(a, "ERASE PROJECT B?") && str_eq(b, "DUB SKETCH");
-    press(B_OCTDN);
-    ok &= !ui.confirm && project_used(1);
-    bad += check("SAVE > PROJECT (#199): KNOB 2 ERASE, OCT+ asks \"ERASE PROJECT B?\" with its name, OCT- keeps it", ok);
-
-    turn(EN_K2, 1);
-    press(B_OCTUP);
-    press(B_OCTUP);
-    ok = !ui.confirm && !project_used(1) && project_used(2) && str_eq(ui.msg, "ERASED (RAM)") && cur_page()->graph == GR_SLOTS;
-    turn(EN_K2, 1);
-    ok &= !act_ready();
-    press(B_OCTUP);
-    ok &= !ui.confirm && str_eq(ui.msg, "EMPTY SLOT");
-    bad += check("  OCT+ again: the slot empty, the others kept; an empty slot: nothing to erase", ok);
-
-    song.g[G_SLOT] = 3;
-    song.playing = 1;
-    turn(EN_K2, 1);
-    ok = !act_ready();
-    press(B_OCTUP);
-    ok &= !ui.confirm && str_eq(ui.msg, "STOP TO ERASE") && project_used(2);
-    song.playing = 0;
-    turn(EN_K3, 1);
-    ok &= ui.act == 3u && str_eq(act_name(2), "LOAD");
-    go_page(GR_SLOTS);
-    ok &= help_page() && str_eq(help_page(), "[K2]ERASE[K4]SAVE[EDIT]NAME") && help_fits(help_page());
-    bad += check("  not while playing (STOP TO ERASE); LOAD and SAVE where they were; its HELP hint", ok);
-    return bad;
-}
+/* (SAVE > PROJECT ERASE, #199: MRC has no PROJECT slots; GLO > PATTERNS' ERASE is tests/ui_test.c test_patterns) */
 
 /* --------------------------------------------------------- CLEAN INIT --- */
 /* a sound with everything added: sends, INSERT, LFO / ENV amounts, MOD, GLIDE, MONO, its E1..E8 off their defaults */
@@ -496,7 +399,7 @@ static int oct_layers(void)
 
 int main(void)
 {
-    int bad = pan_range() + auto_k3() + select_page() + oct_press() + project_erase_ui() + clean_init() + oct_layers();
+    int bad = pan_range() + select_page() + oct_press() + clean_init() + oct_layers();
     printf("%s\n", bad ? "1.5.5 UI TEST FAILED" : "1.5.5 ui tests passed");
     return bad != 0;
 }

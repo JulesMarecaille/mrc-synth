@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PHASE Duel</title>
+<style>
+  :root { --bg:#141414; --surf:#1f1f1f; --raise:#2a2a2a; --text:#E4DCC8; --mid:#8a8578; --dim:#4a4740;
+          --a1:#FBE8A6; --a2:#F3BA5A; --a3:#F79B7A; --a4:#EB5560; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace,Consolas,monospace; }
+  main { max-width:900px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:15px; letter-spacing:.12em; margin:0 0 4px; color:var(--a2); }
+  p.sub { margin:0 0 16px; color:var(--mid); }
+  .screen { background:#000; padding:10px; border-radius:10px; display:inline-block; max-width:100%; }
+  canvas { display:block; width:720px; max-width:100%; aspect-ratio:240/140; image-rendering:pixelated; background:var(--bg); }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:14px 0; }
+  button, select { background:var(--raise); color:var(--text); border:1px solid var(--dim); border-radius:6px;
+                   font:inherit; padding:6px 10px; cursor:pointer; }
+  button:hover { border-color:var(--mid); }
+  button.on { background:var(--a2); color:#141414; border-color:var(--a2); }
+  #cast { background:var(--a4); color:#141414; border-color:var(--a4); font-weight:bold; padding:8px 18px; user-select:none; }
+  #cast.held { background:var(--a1); border-color:var(--a1); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
+  .p { background:var(--surf); border-radius:8px; padding:8px 10px; }
+  .p label { display:flex; justify-content:space-between; color:var(--mid); }
+  .p label b { color:var(--text); font-weight:normal; }
+  .p small { display:block; color:var(--dim); margin-top:2px; }
+  .p input[type=range] { width:100%; accent-color:var(--a2); }
+  .p select { width:100%; margin-top:4px; }
+  .k1 { color:var(--a2) !important; } .k2 { color:var(--a4) !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>PHASE · THE DUEL</h1>
+  <p class="sub">Two mages, WAVE vs WAVE2. Hold CAST (or Space) to play a note. Drag the knobs and watch the clash.</p>
+
+  <div class="screen"><canvas id="cv" width="240" height="140"></canvas></div>
+
+  <div class="row">
+    <button id="cast">CAST</button>
+    <button id="latch">LATCH</button>
+    <button id="sound" class="on">SOUND ON</button>
+    <select id="note"></select>
+    <span style="color:var(--mid)">presets:</span>
+    <span id="presets" class="row" style="margin:0"></span>
+  </div>
+
+  <div class="grid" id="params"></div>
+</main>
+
+<script>
+/* ---- the PHASE waves (shared by the picture and the sound) ---- */
+const WAVE_SRC = `
+function frac(x){ return x - Math.floor(x); }
+function sawBend(f, d){ const x = 0.5 - 0.47 * d; return f < x ? 0.5 * f / x : 0.5 + 0.5 * (f - x) / (1 - x); }
+function pdWave(w, f, d){
+  const T = 6.283185307179586;
+  switch (w) {
+  case 0: return -Math.cos(T * sawBend(f, d));                                         /* SAW */
+  case 1: { const s = 0.5 - 0.47 * d, h = f < 0.5 ? 0 : 0.5, q = f < 0.5 ? f : f - 0.5; /* SQR */
+            return -Math.cos(T * (h + 0.5 * Math.min(q / s, 1))); }
+  case 2: { const x = 1 - 0.88 * d; return -Math.cos(T * Math.min(f / x, 1)); }         /* PLS */
+  case 3: return -Math.cos(T * sawBend(frac(2 * f), d));                                /* DSIN */
+  case 4: return f < 0.5 ? -Math.cos(T * sawBend(2 * f, d)) : -1;                       /* SPLS */
+  case 5: case 6: case 7: {                                                             /* RSAW RTRI RTRP */
+    const k = 1 + d * 11, win = w === 5 ? 1 - f : w === 6 ? 1 - Math.abs(2 * f - 1) : Math.min(1, 3 * (1 - f), 8 * f);
+    return (1 - Math.cos(T * frac(f * k))) * win - 1; }
+  }
+  return 0;
+}
+function fold(x, a){ if (a <= 0) return x; const g = 1 + a * 7; return Math.sin(Math.max(-1, Math.min(1, x)) * g * 1.5707963); }
+`;
+eval(WAVE_SRC);
+
+const WAVES = ["SAW","SQR","PLS","DSIN","SPLS","RSAW","RTRI","RTRP"];
+const PARAMS = [
+  { id:"WAVE",  type:"enum", names:WAVES, def:0, cls:"k1", hint:"left mage's spell (amber beam)" },
+  { id:"WAVE2", type:"enum", names:["-", ...WAVES], def:0, cls:"k2", hint:"right mage's spell; '-' = mirror of WAVE" },
+  { id:"DCW",   type:"pct", def:60, hint:"bend: beam sharpness + pushes the clash point" },
+  { id:"ENV",   type:"pct", def:64, hint:"envelope surge of DCW: the clash lunges on attack" },
+  { id:"DTN",   type:"int", def:0, unit:"ct", hint:"second line slides along, clash wobbles at the beat rate" },
+  { id:"LINE",  type:"enum", names:["MIX","RING"], def:0, hint:"MIX: twin rails · RING: one beaded beam" },
+  { id:"SUB",   type:"pct", def:0, hint:"ground tremor an octave down" },
+  { id:"FOLD",  type:"pct", def:0, hint:"beams fold near the clash, orb grows spikes" },
+];
+const PRESETS = {
+  BRASS:  {p:[0,0,30,90,0,0,0,0],  adsr:[8,70,90,40]},
+  ORGAN:  {p:[3,0,40,0,0,0,0,0],   adsr:[0,127,127,30]},
+  STRING: {p:[0,4,50,40,12,0,0,0], adsr:[40,90,100,70]},
+  RESO:   {p:[5,0,60,60,0,0,0,0],  adsr:[0,70,30,60]},
+  BELL:   {p:[6,0,80,50,0,0,0,0],  adsr:[0,95,0,90]},
+  WIRE:   {p:[4,7,70,40,7,0,0,0],  adsr:[10,80,80,60]},
+};
+
+const P = {}; PARAMS.forEach(p => P[p.id] = p.def);
+let ADSR = [8, 70, 90, 40];
+
+/* ---- controls ---- */
+const ui = {};
+const grid = document.getElementById("params");
+PARAMS.forEach(p => {
+  const el = document.createElement("div"); el.className = "p";
+  const max = p.type === "enum" ? p.names.length - 1 : 127;
+  el.innerHTML = `<label><span class="${p.cls || ""}">${p.id}</span><b></b></label>` +
+    (p.type === "enum" ? `<select>${p.names.map((n, i) => `<option value="${i}">${n}</option>`).join("")}</select>`
+                       : `<input type="range" min="0" max="${max}" value="${p.def}">`) + `<small>${p.hint}</small>`;
+  const inp = el.querySelector("select,input"), out = el.querySelector("b");
+  const show = () => out.textContent = p.type === "enum" ? p.names[P[p.id]] : p.type === "pct" ? Math.round(P[p.id] * 100 / 127) + "%" : P[p.id] + (p.unit || "");
+  inp.addEventListener("input", () => { P[p.id] = +inp.value; show(); sync(); });
+  ui[p.id] = { inp, show }; show(); grid.appendChild(el);
+});
+function setAll(vals) { PARAMS.forEach((p, i) => { P[p.id] = vals[i]; ui[p.id].inp.value = vals[i]; ui[p.id].show(); }); sync(); }
+const pre = document.getElementById("presets");
+Object.entries(PRESETS).forEach(([n, v]) => {
+  const b = document.createElement("button"); b.textContent = n;
+  b.onclick = () => { ADSR = v.adsr; setAll(v.p); [...pre.children].forEach(c => c.classList.toggle("on", c === b)); };
+  pre.appendChild(b);
+});
+const noteSel = document.getElementById("note");
+["C2","G2","C3","E3","G3","C4","G4","C5"].forEach((n, i) => {
+  const midi = [36,43,48,52,55,60,67,72][i];
+  noteSel.insertAdjacentHTML("beforeend", `<option value="${midi}" ${midi === 48 ? "selected" : ""}>${n}</option>`);
+});
+noteSel.onchange = sync;
+
+/* ---- envelope (same curve in the picture and the worklet) ---- */
+const env = { lvl:0, stage:0, gate:false };          /* stage 0 idle, 1 attack, 2 decay/sustain, 3 release */
+function envRate(v, slow) { return 1 / (0.002 + Math.pow(v / 127, 2) * slow); }   /* per second */
+function envStep(e, dt, adsr) {
+  const [a, d, s, r] = adsr, sl = s / 127;
+  if (e.stage === 1) { e.lvl += dt * envRate(a, 3); if (e.lvl >= 1) { e.lvl = 1; e.stage = 2; } }
+  else if (e.stage === 2) { e.lvl += (sl - e.lvl) * Math.min(1, dt * envRate(d, 2.5) * 3); }
+  else if (e.stage === 3) { e.lvl -= e.lvl * Math.min(1, dt * envRate(r, 3) * 3); if (e.lvl < 1e-4) { e.lvl = 0; e.stage = 0; } }
+}
+
+/* ---- sound ---- */
+let ac = null, node = null, soundOn = true;
+const WORKLET = WAVE_SRC + `
+${envRate.toString()}
+${envStep.toString()}
+class PD extends AudioWorkletProcessor {
+  constructor(){ super(); this.p = {}; this.adsr = [8,70,90,40]; this.hz = 130.8; this.e = {lvl:0, stage:0};
+    this.ph = 0; this.ph2 = 0; this.cyc = 0; this.dc = 0; this.dcx = 0;
+    this.port.onmessage = m => { const d = m.data;
+      if (d.p) { this.p = d.p; this.adsr = d.adsr; this.hz = d.hz; }
+      if (d.gate !== undefined) this.e.stage = d.gate ? 1 : (this.e.stage ? 3 : 0); }; }
+  process(_, outs){
+    const o = outs[0][0], p = this.p, sr = sampleRate; if (p.WAVE === undefined) return true;
+    const ring = p.LINE === 1, two = p.DTN > 0 || ring, r2 = Math.pow(2, p.DTN / 1200);
+    for (let i = 0; i < o.length; i++) {
+      if (i % 32 === 0) envStep(this.e, 32 / sr, this.adsr);
+      const lv = this.e.lvl, dcw = Math.min(1, p.DCW / 127 + (p.ENV / 127) * lv * (1 - p.DCW / 127));
+      const w = (this.cyc & 1) && p.WAVE2 > 0 ? p.WAVE2 - 1 : p.WAVE;
+      const w2 = (this.cyc & 1) && p.WAVE2 > 0 ? p.WAVE2 - 1 : p.WAVE;
+      let x = pdWave(w, this.ph, dcw);
+      if (two) { const y = pdWave(w2, this.ph2, dcw); x = ring ? x * y : 0.5 * (x + y); }
+      x = fold(x, p.FOLD / 127);
+      x += (p.SUB / 127) * Math.sin(Math.PI * (this.cyc & 1 ? 1 + this.ph : this.ph));
+      this.dc += 0.002 * (x - this.dc);
+      o[i] = 0.18 * lv * (x - this.dc);
+      this.ph += this.hz / sr; if (this.ph >= 1) { this.ph -= 1; this.cyc++; }
+      this.ph2 += this.hz * r2 / sr; if (this.ph2 >= 1) this.ph2 -= 1;
+    }
+    return true;
+  }
+}
+registerProcessor("pd", PD);`;
+async function ensureAudio() {
+  if (ac) { if (ac.state !== "running") await ac.resume(); return; }
+  ac = new AudioContext();
+  if (!ac.audioWorklet) { console.warn("no AudioWorklet here (open it over http://localhost): visuals only"); return; }
+  await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type:"text/javascript" })));
+  node = new AudioWorkletNode(ac, "pd");
+  const g = ac.createGain(); g.gain.value = soundOn ? 1 : 0; node.connect(g).connect(ac.destination); node._g = g;
+  sync();
+}
+const hz = () => 440 * Math.pow(2, (+noteSel.value - 69) / 12);
+function sync() { if (node) node.port.postMessage({ p:{ ...P }, adsr:ADSR, hz:hz() }); }
+
+let latched = false;
+function gate(on) {
+  env.gate = on; env.stage = on ? 1 : (env.stage ? 3 : 0);
+  if (on) { flash = 1; }
+  document.getElementById("cast").classList.toggle("held", on);
+  ensureAudio().then(() => node && node.port.postMessage({ gate:on }));
+}
+const cast = document.getElementById("cast");
+cast.addEventListener("pointerdown", e => { e.preventDefault(); if (latched) gate(!env.gate); else gate(true); });
+cast.addEventListener("pointerup", () => { if (!latched) gate(false); });
+cast.addEventListener("pointerleave", () => { if (!latched && env.gate) gate(false); });
+addEventListener("keydown", e => { if (e.code === "Space" && !e.repeat && e.target.tagName !== "SELECT") { e.preventDefault(); latched ? gate(!env.gate) : gate(true); } });
+addEventListener("keyup", e => { if (e.code === "Space" && !latched) gate(false); });
+document.getElementById("latch").onclick = e => { latched = !latched; e.target.classList.toggle("on", latched); if (!latched && env.gate) gate(false); };
+document.getElementById("sound").onclick = e => {
+  soundOn = !soundOn; e.target.classList.toggle("on", soundOn); e.target.textContent = soundOn ? "SOUND ON" : "SOUND OFF";
+  if (node) node._g.gain.value = soundOn ? 1 : 0;
+};
+
+/* ---- the picture: 240 x 140, the FM-1's graph area ---- */
+const cv = document.getElementById("cv"), g = cv.getContext("2d");
+const W = 240, H = 140, GROUND = 122, C = { bg:"#141414", text:"#E4DCC8", mid:"#8a8578", dim:"#4a4740",
+  a1:"#FBE8A6", a2:"#F3BA5A", a3:"#F79B7A", a4:"#EB5560" };
+let t = 0, flash = 0, last = performance.now(), clashX = 120, wasCasting = false, trickle = 0;
+
+function line(pts, col, a = 1, wdt = 1) {
+  g.globalAlpha = a; g.strokeStyle = col; g.lineWidth = wdt; g.beginPath();
+  pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); g.globalAlpha = 1;
+}
+function groundY(x) { return GROUND + (P.SUB / 127) * 3.5 * env.lvl * Math.sin(x * 0.045 - t * 5); }
+
+/* a mage: dir 1 faces right, -1 faces left; lean > 0 pushed back */
+function mage(x0, dir, col, lean, casting, tipOut) {
+  const gy = groundY(x0), bx = x0 - dir * lean, top = gy - 30;
+  line([[bx - 9, gy], [bx + 9, gy], [bx + dir * 1, top], [bx - 9, gy]], col);               /* robe, the hat's colour */
+  line([[bx - 8 * dir, gy - 6], [bx + 6 * dir, gy - 6]], col, 0.45);                            /* hem */
+  g.strokeStyle = C.text; g.beginPath(); g.arc(bx + dir * 1.5, top - 4, 4, 0, 6.3); g.stroke(); /* head */
+  const flop = Math.sin(t * 3) * 1.5 - dir * lean * 0.6;                                        /* hat */
+  line([[bx - 8, top - 7], [bx + 9, top - 7]], C.text);
+  line([[bx - 5 + dir, top - 7], [bx - dir * 2 + flop, top - 20], [bx - dir * 7 + flop, top - 22]], col);
+  line([[bx + 5 - dir * 1, top - 7], [bx - dir * 2 + flop, top - 20]], col);
+  const hx = bx + dir * 9, hy = top + 9, tx = bx + dir * 15, ty = top - 12;                      /* arm + staff */
+  line([[bx + dir * 2, top + 4], [hx, hy]], C.text);
+  line([[hx - dir * 2, hy + 18], [tx, ty]], C.mid);
+  const r = 2 + (casting ? 2.5 * env.lvl : 0.5 + 0.5 * Math.sin(t * 4));
+  g.globalAlpha = 0.25 + 0.75 * (casting ? env.lvl : 0.3); g.fillStyle = col;
+  g.beginPath(); g.arc(tx, ty, r, 0, 6.3); g.fill(); g.globalAlpha = 1;
+  tipOut.x = tx; tipOut.y = ty;
+}
+
+/* a beam: the wave drawn from the staff tip to the clash, scrolling toward it */
+/* mode 0: one line (shifted by off px, its phase by ph2); mode 1: RING, the wave times the second line's */
+function beam(x0, y0, x1, y1, w, dcw, col, alpha, off, ph2, mode) {
+  const n = Math.max(2, Math.ceil(Math.abs(x1 - x0))), amp = 10 * env.lvl, cyc = 34, speed = 1.2;
+  const fa = P.FOLD / 127, pts = [], r2 = 1 + 0.18 + P.DTN / 127 * 0.5;   /* (RING: the second line drawn detuned) */
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, x = x0 + (x1 - x0) * u, yb = y0 + (y1 - y0) * u + off;
+    const dist = Math.abs(x - x0), ph = dist / cyc - t * speed;
+    let v = pdWave(w, ((ph + ph2) % 1 + 1) % 1, dcw);
+    if (mode === 1) v *= pdWave(w, ((ph * r2 + ph2) % 1 + 1) % 1, dcw) * 1.3;
+    v = fold(v, fa * Math.pow(u, 1.5));                           /* folding grows toward the clash */
+    const taper = Math.min(1, u * 8) * (0.6 + 0.4 * u);
+    pts.push([x, yb - v * amp * taper]);
+  }
+  line(pts, col, alpha);
+}
+
+function orb(x, y, dcw) {
+  const fa = P.FOLD / 127, spikes = Math.round(fa * 9), base = 3 + 7 * env.lvl * (0.5 + 0.5 * dcw) + 4 * flash;
+  const pts = [];
+  for (let i = 0; i <= 64; i++) {
+    const a = i / 64 * 6.2832, jag = spikes ? 0.55 * fa * Math.abs(Math.sin(spikes * a + t * 6)) : 0;
+    const r = base * (1 + jag) + 0.6 * Math.sin(a * 3 - t * 11) * env.lvl;
+    pts.push([x + Math.cos(a) * r, y + Math.sin(a) * r * 0.9]);
+  }
+  line(pts, C.a1, 0.35 + 0.65 * env.lvl);
+  g.globalAlpha = 0.15 + 0.4 * env.lvl; g.fillStyle = C.a1; g.beginPath(); g.arc(x, y, base * 0.45, 0, 6.3); g.fill(); g.globalAlpha = 1;
+}
+
+/* the boot screen's stars (ui_draw.c spl_burst): a plus with 1..3 px arms, one of the four accents or the cream,
+ * flying out on a cubic ease-out, 12..38 px (the boot's 18..58, toned down here), 650..1100 ms, fading as 1 - u^2, twinkling every 70 ms */
+const SC = [C.a1, C.a2, C.a3, C.a4, C.text];
+let stars = [], starN = 0;
+function burst(x, y, n, spread) {
+  for (let i = 0; i < n; i++) {
+    let dx, dy; do { dx = Math.random() * 2 - 1; dy = Math.random() * 2 - 1; } while (dx * dx + dy * dy > 1 || dx * dx + dy * dy < 0.0625);
+    const sx = x + (Math.random() * 2 - 1) * spread, sy = y + (Math.random() * 2 - 1) * spread * 0.6;
+    stars.push({ sx, sy, dx, dy, reach:12 + Math.random() * 26, t0:t + Math.random() * 0.09,
+                 life:0.65 + Math.random() * 0.45, c:SC[(Math.random() * 5) | 0], s:1 + ((Math.random() * 3) | 0), k:starN++ });
+  }
+}
+function drawStars() {
+  stars = stars.filter(s => t < s.t0 + s.life);
+  for (const s of stars) {
+    if (t < s.t0) continue;
+    const u = (t - s.t0) / s.life, e = 1 - Math.pow(1 - u, 3);
+    const x = Math.round(s.sx + s.dx * s.reach * e), y = Math.round(s.sy + s.dy * s.reach * e);
+    let a = 1 - u * u;
+    if (((Math.floor(t * 1000 / 70) + s.k) & 3) === 0) a /= 3;
+    g.fillStyle = s.c; g.globalAlpha = a; g.fillRect(x, y, 1, 1);
+    for (let k = 1; k <= s.s; k++) {
+      g.globalAlpha = a * (s.s + 1 - k) / (s.s + 1);
+      g.fillRect(x - k, y, 1, 1); g.fillRect(x + k, y, 1, 1); g.fillRect(x, y - k, 1, 1); g.fillRect(x, y + k, 1, 1);
+    }
+  }
+  g.globalAlpha = 1;
+}
+
+const tipL = {}, tipR = {};
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
+  envStep(env, dt, ADSR); flash = Math.max(0, flash - dt * 3);
+  const dcw = Math.min(1, P.DCW / 127 + (P.ENV / 127) * env.lvl * (1 - P.DCW / 127));
+  const beat = (P.DTN / 127) * 12 * Math.sin(t * (0.6 + P.DTN * 0.05));
+  const target = 120 + (dcw - 0.5) * 100 + beat;
+  clashX += (target - clashX) * Math.min(1, dt * 6);
+
+  g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+  /* ground */
+  const gp = []; for (let x = 0; x <= W; x += 2) gp.push([x, groundY(x) + 0.5]); line(gp, C.dim);
+  for (let x = 8; x < W; x += 16) line([[x, groundY(x) + 4], [x + 5, groundY(x) + 4]], C.dim, 0.5);
+
+  const casting = env.lvl > 0.002, mirror = P.WAVE2 === 0;
+  const w1 = P.WAVE, w2 = mirror ? P.WAVE : P.WAVE2 - 1, c2 = mirror ? C.a3 : C.a4;
+  const closeL = Math.max(0, 1 - (clashX - 40) / 80), closeR = Math.max(0, 1 - (200 - clashX) / 80);
+  mage(22, 1, C.a2, closeL * 5 * env.lvl, casting, tipL);
+  mage(218, -1, c2, closeR * 5 * env.lvl, casting, tipR);
+
+  if (casting && !wasCasting) { burst(clashX, (tipL.y + tipR.y) / 2, 24, 6); trickle = 0; }   /* the clash */
+  wasCasting = casting;
+  if (casting) {
+    const cy = (tipL.y + tipR.y) / 2 + 2 * Math.sin(t * 2.3);
+    const alt = Math.floor(t * 6) & 1;                           /* WAVE / WAVE2 take turns */
+    const a1 = alt ? 0.75 : 1, a2 = alt ? 1 : 0.75;
+    if (P.LINE === 0) {                    /* MIX: DTN 0 one beam; above, a second rail that DTN parts (6 px at 127) and slides */
+      const drift = t * P.DTN * 0.012, o = 3 * P.DTN / 127;
+      beam(tipL.x, tipL.y, clashX - 2, cy, w1, dcw, C.a2, a1, -o, 0, 0);
+      beam(tipR.x, tipR.y, clashX + 2, cy, w2, dcw, c2, a2, -o, 0, 0);
+      if (P.DTN > 0) {
+        beam(tipL.x, tipL.y, clashX - 2, cy, w1, dcw, C.a2, a1 * 0.55, o, drift, 0);
+        beam(tipR.x, tipR.y, clashX + 2, cy, w2, dcw, c2, a2 * 0.55, o, -drift, 0);
+      }
+    } else {                                                       /* RING: one beaded beam each */
+      const drift = t * (0.3 + P.DTN * 0.012);
+      beam(tipL.x, tipL.y, clashX - 2, cy, w1, dcw, C.a2, a1, 0, drift, 1);
+      beam(tipR.x, tipR.y, clashX + 2, cy, w2, dcw, c2, a2, 0, -drift, 1);
+    }
+    orb(clashX, cy, dcw);
+    trickle += dt * (2.5 + 8 * env.lvl);                            /* stars keep coming while they hold */
+    while (trickle >= 1) { trickle--; burst(clashX, cy, 1, 3); }
+  }
+  drawStars();
+
+  /* labels */
+  g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top";
+  g.fillStyle = C.a2; g.fillText(WAVES[w1], 4, 4);
+  g.fillStyle = c2; const l2 = mirror ? WAVES[w1] + "'" : WAVES[w2]; g.fillText(l2, W - 4 - g.measureText(l2).width, 4);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

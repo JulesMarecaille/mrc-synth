@@ -180,7 +180,6 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
-    memset(proj_slot, 0, sizeof proj_slot);
     memset(up_bank, 0, sizeof up_bank);
     memset(&upf, 0, sizeof upf);
     memset(&ui, 0, sizeof ui);
@@ -462,11 +461,13 @@ static int slot_test(void)
     return bad;
 }
 
-/* projects, user presets and motion: a bank voice stays with what was saved; stored SLOT values load as before */
+/* the project (MRC: the autosave's image), user presets and motion: a bank voice stays with what was saved; stored SLOT
+ * values load as before */
 static int keep_test(void)
 {
     int bad = 0, ok;
     static bank_t a, b;
+    static project_store_t st;
     uint8_t pk[FM6_PACKED];
     reset();
     make_bank(&a, 'A', 0xFFFFFFFFu, "FIRST");
@@ -475,14 +476,14 @@ static int keep_test(void)
     song.sel = 0;
     slot_to(0, FM6_OWN + 5);                              /* track 1 on B5 */
     slot_to(1, FM6_OWN + 7);                              /* track 2 on B7 */
-    ok = project_save(0) == 0;
+    project_capture(&proj_scratch);
+    ok = proj_pack(&st, &proj_scratch) != 0;             /* (what the autosave writes) */
     song.sel = 1;
     ok &= up_store(5, "BANK B7") == 0;
     send_bank(&b, 0);                                     /* the bank replaced */
     slot_to(0, 1);
     slot_to(1, 1);
-    memset(proj_slot, 0, sizeof proj_slot);              /* (from flash) */
-    project_load(0);
+    ok &= proj_import(&proj_scratch, &st, sizeof st) && !project_restore_runtime(&proj_scratch);   /* (as at power-on) */
     ok &= patch_is(0, a.v[4]) && trk[0].p[P_E7] == FM6_OWN && patch_is(1, a.v[6]) && trk[1].p[P_E7] == FM6_OWN;
     bad += check("a project saved on B5 / B7: loads those voices (SLOT OWN) after the bank was replaced", ok);
     song.sel = 2;

@@ -313,8 +313,6 @@
 
   <section class="panel" id="p-projects" data-tab="projects" data-dev hidden>
     <h2 data-t="projects" data-ic="symbol_folder"></h2>
-    <p class="dim" data-t="projHelp"></p>
-    <div class="slots" id="slots"></div>
     <div id="backup-panel" style="margin-top:16px">
       <h2 data-t="backupTitle"></h2>
       <p class="bar"><button id="backup-export" data-t="backupExport"></button>
@@ -352,7 +350,7 @@
 /*PROTO-BEGIN*/
 /* ---------------------------------------------------------------- protocol --- */
 const HDR = [0x7D, 0x46, 0x4C];
-const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 7, PRESET: 8, PROJECT: 9, NAMES: 10,
+const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 7, PRESET: 8, NAMES: 10,
   SMP_BEGIN: 11, SMP_WRITE: 12, SMP_END: 13, SMP_ERASE: 14, SMP_INFO: 15,
   UP_LIST: 16, UP_GET: 17, UP_PUT: 18, UP_STORE: 19, UP_LOAD: 20, UP_ERASE: 21,
   WATCH: 22, CHANGED: 23, RELOAD: 24, PING: 25, STEP_CHANGED: 26,
@@ -365,6 +363,8 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
 const UP = { NAME_MAX: 12, PAT: 16, LIST_MAX: 16 };
+/* MRC: SONG's sections name the device's saved patterns (P01..P24); "-" (silent) is SILENT on the wire */
+const SONG = { NPAT: 24, SILENT: 127 };
 const F = { INT: 0, PCT: 1, BIPCT: 2, TIME: 3, LFOHZ: 4, CUTOFF: 5, DB: 6, SEMI: 7, ENUM: 8, BPM: 9, NOTE: 10, ONOFF: 11, OCT: 12, STEPS: 13 };
 
 const v14enc = (v) => { const u = Math.max(-8192, Math.min(8191, Math.round(v))) + 8192; return [u & 0x7F, (u >> 7) & 0x7F]; };
@@ -495,11 +495,13 @@ const parse = {
   },
   [CMD.STEP_SET](a) { return parse[CMD.STEP_GET](a); },
   [CMD.PRESET](a) { const r = new Reader(a); return { engine: r.b(), preset: r.b() }; },
-  [CMD.PROJECT](a) { const r = new Reader(a); return { op: r.b(), slot: r.b(), used: r.b() }; },
-  [CMD.SONG](a) {
+  [CMD.SONG](a) {                                 /* (MRC: ops 4..7 only, a saved pattern per track, 0..23, null "-") */
     const r = new Reader(a);
     const o = { op: r.b(), rc: r.b(), count: r.b(), playing: r.b(), row: r.b(), remaining: r.b(), rows: [] };
-    for (let i = 0; i < o.count; i++) o.rows.push({ slot: r.b(), repeat: r.b() });
+    for (let i = 0; i < o.count; i++) {
+      const slots = [0, 1, 2, 3].map(() => { const s = r.b(); return s < SONG.NPAT ? s : null; });
+      o.rows.push({ slots, repeat: r.b() });
+    }
     return o;
   },
   [CMD.MOTION](a) {
@@ -534,16 +536,10 @@ const parse = {
     return o;
   },
   /* needs P_COUNT from INFO */
-  [CMD.UP_GET](a, info) {
+  [CMD.UP_GET](a, info) {                        /* (MRC: no pattern, the device saves sounds and patterns apart) */
     const r = new Reader(a);
-    const o = { slot: r.b(), used: r.b(), engine: r.b(), name: r.s(), p: [], pattern: [] };
+    const o = { slot: r.b(), used: r.b(), engine: r.b(), name: r.s(), p: [], pattern: null, grid: null };
     for (let i = 0; i < info.pcount; i++) o.p.push(r.v());
-    for (let i = 0; i < UP.PAT; i++) o.pattern.push([r.b(), r.b()]);
-    o.grid = null;                                   /* v5: kind 1 = a drum grid (the pairs its low 7 bits), 16 x hi */
-    if (r.i < a.length && r.b() === 1 && r.i + UP.PAT <= a.length) {
-      o.grid = o.pattern.map(([h, c]) => { const x = r.b(), hit = h | (x & 1) << 7; return [hit, (c | (x & 2) << 6) & hit]; });
-      o.pattern = null;
-    }
     return o;
   },
   [CMD.UP_PUT](a) { return parse[CMD.SMP_BEGIN](a); },
@@ -612,10 +608,13 @@ const req = {
       ...(st.chance == null || st.ratchet == null ? [] : [Math.max(1, Math.min(4, st.ratchet | 0))])]];   /* (only after the chance) */
   },
   preset: (e, p) => [CMD.PRESET, [e & 0x7F, p & 0x7F]],
-  project: (op, slot) => { if (![0, 1, 2].includes(op)) throw new Error("bad PROJECT op"); return [CMD.PROJECT, [op, slot & 3]]; },   /* 0 load, 1 save, 2 query */
+  /* op 0 query, 1 set rows ({slots: 4 x pattern 0..23 or null, repeat}), 2 play, 3 stop; sent as 4..7 (a pattern per track) */
   song: (op = 0, rows = []) => {
-    if (![0, 1, 2, 3].includes(op) || rows.length > 16 || rows.some((r) => !Number.isInteger(r.slot) || r.slot < 0 || r.slot > 3 || !Number.isInteger(r.repeat) || r.repeat < 1 || r.repeat > 16)) throw new Error("bad SONG rows");
-    return [CMD.SONG, op === 1 ? [op, rows.length, ...rows.flatMap((r) => [r.slot, r.repeat])] : [op]];
+    const okSlot = (s) => s == null || (Number.isInteger(s) && s >= 0 && s < SONG.NPAT);
+    if (![0, 1, 2, 3].includes(op) || rows.length > 16 || rows.some((r) => !Array.isArray(r.slots) || r.slots.length !== 4 ||
+        !r.slots.every(okSlot) || !Number.isInteger(r.repeat) || r.repeat < 1 || r.repeat > 16)) throw new Error("bad SONG rows");
+    return [CMD.SONG, op === 1 ? [op | 4, rows.length, ...rows.flatMap((r) => [...r.slots.map((s) => s ?? SONG.SILENT), r.repeat])]
+      : [op | 4]];
   },
   motion: (track, op = 0, arg = {}) => {
     if (!Number.isInteger(track) || track < 0 || track > 3 || ![0, 1, 2, 3, 4].includes(op)) throw new Error("Invalid motion request");
@@ -630,12 +629,8 @@ const req = {
   smpInfo: () => [CMD.SMP_INFO, []],
   upList: (start, count) => [CMD.UP_LIST, [start & 0x7F, Math.max(1, Math.min(UP.LIST_MAX, count | 0))]],
   upGet: (s) => [CMD.UP_GET, [s & 0x7F]],
-  /* patch: {engine, name, p: P_COUNT values, pattern: 16 x [note, flags] or grid: 16 x [hit, acc] (v5: kind 1)} */
-  upPut: (s, pt) => [CMD.UP_PUT, [s & 0x7F, pt.engine & 0x7F, ...strEnc(upName(pt.name)), ...pt.p.flatMap((v) => v14enc(v ?? 0)),
-    ...(pt.grid
-      ? [...Array.from({ length: UP.PAT }, (_, i) => hitsEnc(...(pt.grid[i] || [0, 0])).slice(0, 2)).flat(), 1,
-         ...Array.from({ length: UP.PAT }, (_, i) => hitsEnc(...(pt.grid[i] || [0, 0]))[2])]
-      : Array.from({ length: UP.PAT }, (_, i) => { const x = (pt.pattern || [])[i] || [0, 0]; return [x[0] & 0x7F, x[1] & 7]; }).flat())]],
+  /* patch: {engine, name, p: P_COUNT values} (MRC: a patch's pattern stays in the library, the device keeps none) */
+  upPut: (s, pt) => [CMD.UP_PUT, [s & 0x7F, pt.engine & 0x7F, ...strEnc(upName(pt.name)), ...pt.p.flatMap((v) => v14enc(v ?? 0))]],
   upStore: (s, name) => [CMD.UP_STORE, [s & 0x7F, ...strEnc(name ? upName(name) : "")]],   /* "": the device names it ("ANALOG 07") */
   upLoad: (s) => [CMD.UP_LOAD, [s & 0x7F]],
   upErase: (s) => [CMD.UP_ERASE, [s & 0x7F]],
@@ -672,7 +667,6 @@ function replyMatches(cmd, args, a) {
     case CMD.SONG: return a[0] === args[0];
     case CMD.FM6_GET: case CMD.FM6_PUT: return a[0] === args[0] && a[1] === args[1];
     case CMD.FM6_ERASE: return a[0] === args[0];
-    case CMD.PROJECT: return a[0] === args[0] && a[1] === args[1];
     case CMD.UP_LIST: case CMD.UP_GET: case CMD.UP_PUT: case CMD.UP_STORE: case CMD.UP_LOAD: case CMD.UP_ERASE:
     case CMD.TRACK_MIX: case CMD.TRACK_DUMP: return a[0] === args[0];
     case CMD.WATCH: return (a[0] & 1) === (args[0] & 1);   /* bit 1: v4 firmware only */
@@ -1033,7 +1027,7 @@ function buildSlot(name, zonesIn) {
        "firmware": "FELUCCA 0.5 ...",          device version string when exported ("" if unknown)
        "pCount": 57, "pE0": 49,                 P_COUNT and the first engine parameter id
        "paramLabels": ["LVL", "ATK", ...],      one key per parameter id: the DESC label, "#2", "#3" appended to
-                                                a repeated label (PIT, PIT#2), and "E0".."E7" for the engine
+                                                a repeated label (PTCH, PTCH#2), and "E0".."E7" for the engine
                                                 parameters (their labels depend on the engine)
        "engines": ["ANALOG", ...],              engine names by index
        "exported": "2026-10-03T12:00:00.000Z",
@@ -1086,15 +1080,6 @@ function patternFromSteps(steps) {
     const s = steps[i];
     if (!s) return [0, 0];
     return patNorm(s.time === 0 && s.n ? s.notes[0] : 0, s.time === 1 ? 4 : (s.flags & 3) | ((s.ratchet || 1) - 1) << 3);
-  });
-}
-/* pattern -> 16 STEP_SET objects, as the firmware loads one (load_pat16; velocity 96); the ratchet is sent only with a
-   chance (req.stepSet) */
-function stepsFromPattern(pat) {
-  return Array.from({ length: UP.PAT }, (_, i) => {
-    const [n, f] = (pat && pat[i]) || [0, 0];
-    return { n: n ? 1 : 0, notes: [n & 0x7F, 0, 0, 0], time: f & 4 ? 1 : n ? 0 : 2, flags: n ? f & 3 : 0, vel: n ? 96 : 0,
-      ratchet: n ? (f >> 3 & 3) + 1 : 1 };
   });
 }
 const patternUsed = (pat) => !!pat && pat.some((x) => x && x[0]);
@@ -1667,13 +1652,13 @@ function makeMockDevice(opt = {}) {
   const TP = [
     D("LVL", F.DB, 0, 127, 104),
     D("ATK", F.TIME, 0, 127, 10), D("DEC", F.TIME, 0, 127, 70), D("SUS", F.PCT, 0, 127, 90), D("REL", F.TIME, 0, 127, 60),
-    D("FLT", F.BIPCT, -64, 63, 0), D("PIT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("FX", F.BIPCT, -64, 63, 0),
+    D("FLT", F.BIPCT, -64, 63, 0), D("PTCH", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("FX", F.BIPCT, -64, 63, 0),
     D("RATE", F.LFOHZ, 0, 127, 60), E("WAVE", ["SIN", "TRI", "SAW", "SQR", "S&H"], 0), D("PHS", F.INT, 0, 127, 0), D("FADE", F.TIME, 0, 127, 0),
-    D("PIT", F.BIPCT, -64, 63, 0), D("FLT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("AMP", F.PCT, 0, 127, 0),
+    D("PTCH", F.BIPCT, -64, 63, 0), D("FLT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("AMP", F.PCT, 0, 127, 0),
     E("MODE", ["OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT", "DNUP", "UP+8", "CONV", "DIVG", "PINKY", "THUMB", "WALK", "CHORD"], 0), E("RATE", NDIV, 2), D("OCT", F.INT, 1, 4, 1), D("GATE", F.PCT, 1, 127, 64),
     D("SWG", F.PCT, 0, 100, 0), D("PROB", F.PCT, 0, 127, 127), E("HOLD", NONOFF, 0), E("ORD", ["NOTE", "PLAY"], 0),
     D("ROOT", F.NOTE, 0, 11, 0), E("SCL", ["CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"], 0), E("QNT", ["OFF", "SNAP", "WHITE", "SEQ", "SEQ+T"], 0), D("TRN", F.SEMI, -24, 24, 0),
-    D("LEN", F.STEPS, 1, 64, 16), E("DIV", NDIV, 2), D("SWG", F.PCT, 0, 100, 0), D("GATE", F.PCT, 1, 127, 64),
+    D("LEN", F.STEPS, 1, 64, 64), E("DIV", NDIV, 2), D("SWG", F.PCT, 0, 100, 0), D("GATE", F.PCT, 1, 127, 64),
     D("DST", F.PCT, 0, 127, 0), D("CHO", F.PCT, 0, 127, 0), D("DLY", F.PCT, 0, 127, 0), D("REV", F.PCT, 0, 127, 0),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
@@ -1683,7 +1668,7 @@ function makeMockDevice(opt = {}) {
   const GP = [
     D("BPM", F.BPM, 40, 240, 120), D("SWG", F.PCT, 0, 100, 0), E("CLK", ["INT", "USB", "TRS"], 0), D("TUNE", F.INT, -50, 50, 0),
     E("TIME", [...NDIV, "1/8D", "1/16D", "1/4D"], 1), D("FDBK", F.PCT, 0, 120, 60), D("COLR", F.PCT, 0, 127, 70), D("MIX", F.PCT, 0, 127, 90),
-    D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("CRT", F.LFOHZ, 0, 127, 40), D("CDP", F.PCT, 0, 127, 60),
+    D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("RATE", F.LFOHZ, 0, 127, 40), D("DPTH", F.PCT, 0, 127, 60),
     E("MIDI", ["USB", "TRS"], 0), E("SYNC", NDASH, 0), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16", "TRACK"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
@@ -1776,24 +1761,6 @@ function makeMockDevice(opt = {}) {
       presets: [P("CHOP", [0, 2, 0, 0, 0, 0, 127, 127], [0, 127, 127, 30], 0, 9), P("STUTTER", [0, 1, 0, 0, 1, 0, 90, 110], [0, 127, 127, 12], 0, 10)] },
   ];
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_OWN = FM6.FACTORY_PK.length, DRUM_E = ENG.findIndex((e) => e.name === "DRUM");
-  /* factory PATTERNS[] (engines.c; the device loads them from SAVE > PHRASES, presets only suggest one): absolute
-     notes, 0 rest; flags 1 accent, 2 slide, 4 tie (holds the previous note) */
-  const T_ = 4;
-  const PATTERNS = [
-    [[45, 45, 57, 45, 0, 48, 45, 55, 45, 0, 57, 52, 45, 48, 0, 50], [1, 0, 2, 0, 0, 0, 1, 2, 0, 0, 1, 0, 0, 2, 0, 1]],
-    [[0, 36, 0, 36, 0, 36, 0, 48, 0, 36, 0, 36, 0, 39, 0, 43], [0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]],
-    [[60, 0, 67, 0, 72, 67, 0, 64, 62, 0, 69, 0, 74, 69, 0, 67], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]],
-    [[72, 0, 0, 74, 0, 0, 76, 0, 79, 0, 76, 0, 74, 0, 0, 0], [1, T_, 0, 2, T_, 0, 0, 0, 1, 0, 2, 0, 0, T_, T_, 0]],
-    [[60, 0, 0, 0, 0, 0, 0, 0, 57, 0, 0, 0, 55, 0, 0, 0], [0, T_, T_, T_, T_, T_, T_, 0, 0, T_, T_, 0, 0, T_, T_, 0]],
-    [[0, 0, 60, 0, 0, 63, 0, 0, 0, 0, 60, 0, 0, 65, 0, 63], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]],
-    [[72, 0, 0, 79, 0, 0, 84, 0, 0, 0, 76, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
-    [[36, 0, 0, 0, 0, 0, 0, 36, 0, 0, 34, 0, 0, 0, 0, 0], [1, T_, T_, T_, 0, 0, 0, 0, 0, 0, 0, T_, T_, T_, 0, 0]],
-    [[60, 61, 62, 67, 64, 65, 60, 69, 68, 70, 62, 67, 72, 72, 74, 64], [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]],
-    [[60, 60, 61, 61, 62, 0, 63, 63, 64, 65, 65, 0, 66, 66, 66, 67], [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]],
-    [[60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]],
-    [[36, 42, 42, 42, 38, 42, 36, 42, 36, 42, 42, 36, 38, 42, 46, 42], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]],   /* 12 BEAT (DRUM) */
-    [[48, 51, 55, 60, 63, 67, 72, 75, 48, 51, 55, 60, 63, 67, 72, 75], [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]],   /* 13 ARP */
-  ];
   for (let op = 0; op < 4; op++) TP.push(D("ATK", F.TIME, 0, 127, 0), D("DEC", F.TIME, 0, 127, 0), D("SUS", F.PCT, 0, 127, 127), D("REL", F.TIME, 0, 127, 0), D("LVL", F.PCT, 0, 127, 127));
   TP.push(E("CHRD", ["OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"], 0),   /* the chord keys 81, 82 */
     E("VOIC", ["CLOSE", "OPEN", "INV1", "INV2", "+OCT"], 0));
@@ -1816,12 +1783,13 @@ function makeMockDevice(opt = {}) {
   const st = {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
     g: GP.map((d) => d.def),
-    slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
+    pats: Array.from({ length: SONG.NPAT }, (_, k) => k < 2),   /* the saved patterns (MRC: P01, P02 to start with) */
+    songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
     smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, name: "", len: 0, next: SMP.DATA_OFF })),
-    bank: new Array(opt.slots || 32).fill(null),     /* user presets: {engine, name, p, pattern, grid, fm6 (FM6: its patch)} */
+    bank: new Array(opt.slots || 32).fill(null),     /* user presets: {engine, name, p, fm6 (FM6: its patch)} */
     uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 9,
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0,
-    palettes: ["GREY", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON", "NIGHT", "MONO"],
+    palettes: ["MRC", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON", "NIGHT", "MONO"],
     favorites: Array.from({ length: ENG.length + 1 }, () => []),
     watch: false, v4: false, lastReq: 0,
   };
@@ -1831,21 +1799,6 @@ function makeMockDevice(opt = {}) {
   const watchMs = opt.watchMs || 3000;
   const desc = (scope, id) => (scope === 0 && id < P_COUNT ? (id >= P_E0 ? ENG[st.engine].edit[id - P_E0] : TP[id])
     : scope === 1 && id < G_COUNT ? GP[id] : null);
-  const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0, chance: 100, ratchet: 1 };
-  const isDrum = () => ENG[st.engine].name === "DRUM";
-  const clearSteps = () => st.step.forEach((s) => Object.assign(s, EMPTY, { notes: [0, 0, 0, 0] }));
-  function toGrid(s) {                            /* eng_drum.c step_to_grid: a lane's own note becomes its hit */
-    if (s.time !== 0) return;
-    const keep = s.notes.slice(0, s.n).filter((n) => { const l = drumLane(n); if (n !== LANE_NOTE[l]) return true; s.hit |= 1 << l; return false; });
-    s.notes = [...keep, 0, 0, 0, 0].slice(0, 4); s.n = keep.length;
-    if (!s.n && s.flags & 1) { s.acc |= s.hit; s.flags &= ~1; }
-  }
-  function loadPat16(pat) {                       /* ui.c load_pat16 (into a DRUM track: its grid) */
-    const ps = stepsFromPattern(pat);
-    st.step.forEach((s, i) => { Object.assign(s, EMPTY, i < 16 ? ps[i] : { notes: [0, 0, 0, 0] }); if (isDrum()) toGrid(s); });
-    st.p[29] = 16;
-  }
-  const loadPattern = (k) => loadPat16(PATTERNS[k][0].map((n, i) => [n, PATTERNS[k][1][i]]));
   function applyPreset(pi) {
     const e = ENG[st.engine];
     if (e.name === "SAMPLE" && pi === PERC_SET) { setEngine(DRUM_E); return; }   /* once PERC: DRUM's kit (ui.c apply_preset_to) */
@@ -1898,13 +1851,9 @@ function makeMockDevice(opt = {}) {
     const p = st.p.map((x, i) => (i < P_E0 && !trackOwn(i, P_E0) ? TP[i].def : x));
     fm4Apply(FM4.presetValues(p, k, P_E0));
   }
-  const snapshot = (name) => {                   /* (upreset.c up_store: a DRUM track that strikes a lane: its grid; an FM6
-                                                     track: its patch, up_fm6.c) */
-    const grid = isDrum() ? gridFromSteps(st.step) : null;
-    const fm6 = st.engine === FM6_E ? st.tracks[st.sel].fm6.slice() : null;
-    return patternUsed(grid) ? { engine: st.engine, name, p: st.p.slice(), pattern: null, grid, fm6 }
-      : { engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null, fm6 };
-  };
+  const snapshot = (name) => ({ engine: st.engine, name, p: st.p.slice(),   /* (upreset.c up_store: the sound only, MRC;
+                                                     an FM6 track: its patch, up_fm6.c) */
+    fm6: st.engine === FM6_E ? st.tracks[st.sel].fm6.slice() : null });
   const ratchetOn = () => !!syncCaps() && !opt.noRatchet;   /* (INFO 52 01 04, after the sync tag) */
   const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); if (ratchetOn()) b(x.ratchet ?? 1); };
   function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3) [, chance [, ratchet]]] */
@@ -1913,22 +1862,16 @@ function makeMockDevice(opt = {}) {
     if (a.length >= 12) x.chance = Math.min(100, a[11]);
     if (a.length >= 13 && ratchetOn()) x.ratchet = Math.max(1, Math.min(4, a[12]));
   }
-  /* a few user presets to start with, each with its preset's suggested pattern stored (as UP_STORE would) */
+  /* a few user presets to start with (as UP_STORE would) */
   [[0, 0, 0, "MY LEAD"], [1, FM6_E, 1, "GLASS BELL"], [2, 2, 3, "PHASE RESO"], [5, 3, 2, "8BIT ARP"]].forEach(([slot, e, p, name]) => {
     setEngine(e); applyPreset(p);
-    if (ENG[e].presets[p].pat) loadPattern(ENG[e].presets[p].pat - 1);
     st.bank[slot] = snapshot(name);
-    clearSteps(); st.p[29] = 16;
   });
   /* the power-on sounds (engines.c TRK_DEF): ACID, PAD, PULSE LD, DRUM KIT */
   [[1, FM6_E, 4], [2, 3, 0], [3, 10, 0], [0, 0, 4]].forEach(([i, e, p]) => { st.sel = i; setEngine(e); applyPreset(p); });
-  /* the device powers on with its sequencers empty; the mock starts as a little demo to look at: track 1 with
-     the ACID pattern, track 4 with BEAT (as SAVE > PHRASES would load them), pads left, lead right */
-  st.sel = 3; loadPattern(11);
-  st.sel = 0; loadPattern(0);
+  /* the device powers on with its sequencers empty (MRC: no factory patterns), as the mock does; pads left, lead right */
+  st.sel = 0;
   st.tracks[1].p[39] = -24; st.tracks[2].p[39] = 20; st.tracks[2].p[0] = 92;
-  const project = () => JSON.parse(JSON.stringify({ tracks: st.tracks, sel: st.sel, g: st.g, songRows: st.songRows }));
-  st.slots[0] = project();
 
   function handle(cmd, a) {
     const out = [];
@@ -1956,14 +1899,7 @@ function makeMockDevice(opt = {}) {
         const u = st.bank[a[0]];
         b(a[0]); b(u ? 1 : 0); b(u ? u.engine : 0); s(u ? u.name : "");
         for (let i = 0; i < P_COUNT; i++) v(u ? u.p[i] : 0);
-        if (u && u.grid) {                          /* kind 1: the grid's low 7 bits, then its bit 7s */
-          for (let i = 0; i < UP.PAT; i++) { const x = hitsEnc(...u.grid[i]); b(x[0]); b(x[1]); }
-          b(1);
-          for (let i = 0; i < UP.PAT; i++) b(hitsEnc(...u.grid[i])[2]);
-        } else {
-          for (let i = 0; i < UP.PAT; i++) { const x = u ? u.pattern[i] : [0, 0]; b(x[0]); b(x[1]); }
-          b(0);
-        }
+        b(0);                                       /* the category (none) */
         break;
       }
       case CMD.UP_PUT: {
@@ -1971,22 +1907,15 @@ function makeMockDevice(opt = {}) {
         const r = new Reader(a);
         let rc = 0;
         try {
-          const slot = r.b(), engine = r.b(), name = r.s(), p = [], raw = [];
-          let pattern = null, grid = null;
+          const slot = r.b(), engine = r.b(), name = r.s(), p = [];
           for (let i = 0; i < P_COUNT; i++) p.push(r.v());
-          for (let i = 0; i < UP.PAT; i++) raw.push([r.b(), r.b()]);
-          const tail = a.length - r.i;
-          if (tail !== 0 && (tail !== 1 + UP.PAT || a[r.i] > 1)) throw new Error("bad preset extension");
-          if (tail && a[r.i] === 1) {              /* kind 1: a complete drum grid */
-            r.b();
-            grid = raw.map(([h, c]) => { const x = r.b(), hit = h | (x & 1) << 7; return [hit, (c | (x & 2) << 6) & hit]; });
-          } else pattern = raw.map(([n, f]) => patNorm(n, f));
+          if (a.length - r.i > 1) throw new Error("bad preset extension");   /* (then only the category) */
           if (slot >= NB || engine >= ENG.length || !name.length || name.length > UP.NAME_MAX || /[^\x20-\x7E]/.test(name)) rc = 1;
           else {
             const saved = st.engine;                /* values clamped to the ranges of that engine */
             const pc = fromPerc({ engine, p }, ENG.map((x) => x.name), P_E0);   /* SAMPLE PERC: DRUM (upreset.c up_migrate) */
             st.engine = pc ? pc.engine : engine;
-            st.bank[slot] = { engine: st.engine, name, p: (pc ? pc.p : p).map((x, i) => { const d = desc(0, i); return clamp(x, d.min, d.max); }), pattern, grid };
+            st.bank[slot] = { engine: st.engine, name, p: (pc ? pc.p : p).map((x, i) => { const d = desc(0, i); return clamp(x, d.min, d.max); }) };
             st.engine = saved;
           }
         } catch (e) { rc = 1; }
@@ -2184,43 +2113,30 @@ function makeMockDevice(opt = {}) {
         }
         b(st.engine); b(st.preset);
         break;
-      case CMD.SONG: {
-        if (!a.length || a[0] > 3) return null;
+      case CMD.SONG: {                             /* (MRC: ops 4..7, a saved pattern per track; editor.c ED_SONG) */
+        if (!a.length || a[0] < 4 || a[0] > 7) return null;
+        const op = a[0] & 3;
         let rc = 0;
-        if (a[0] === 1) {
-          const rows = Array.from({ length: a[1] || 0 }, (_, i) => ({ slot: a[2 + 2 * i], repeat: a[3 + 2 * i] }));
-          if (a.length < 2 || a[1] > 16 || a.length !== 2 + 2 * a[1] || rows.some((r) => r.slot > 3 || r.repeat < 1 || r.repeat > 16)) rc = 1;
+        if (op === 1) {
+          const rows = Array.from({ length: a[1] || 0 }, (_, i) => {
+            const x = a.slice(2 + 5 * i, 7 + 5 * i);
+            return { slots: x.slice(0, 4).map((s) => (s === SONG.SILENT ? null : s)), repeat: x[4] };
+          });
+          if (a.length < 2 || a[1] > 16 || a.length !== 2 + 5 * a[1] ||
+              rows.some((r) => r.slots.some((s) => s != null && s >= SONG.NPAT) || r.repeat < 1 || r.repeat > 16)) rc = 1;
           else if (st.chainPlaying) rc = 2;
           else st.songRows = rows;
-        } else if (a[0] === 2) {
+        } else if (op === 2) {
+          const used = [...new Set(st.songRows.flatMap((r) => r.slots.filter((s) => s != null)))];
+          const missing = used.find((s) => !st.pats[s]);
           if (st.chainPlaying) rc = 2;
           else if (!st.songRows.length) rc = 1;
-          else {
-            const missing = st.songRows.find((r) => !st.slots[r.slot]);
-            if (missing) rc = 3 + missing.slot;
-            else { st.chainPlaying = true; st.chainRow = 0; st.chainRemaining = st.songRows[0].repeat; }
-          }
-        } else if (a[0] === 3) st.chainPlaying = false;
+          else if (missing != null) rc = 4 + missing;
+          else if (used.length > 16) rc = 3;
+          else { st.chainPlaying = true; st.chainRow = 0; st.chainRemaining = st.songRows[0].repeat; }
+        } else if (op === 3) st.chainPlaying = false;
         b(a[0]); b(rc); b(st.songRows.length); b(st.chainPlaying ? 1 : 0); b(st.chainRow); b(st.chainRemaining);
-        st.songRows.forEach((r) => { b(r.slot); b(r.repeat); });
-        break;
-      }
-      case CMD.PROJECT: {
-        if (a.length < 2) return null;
-        const k = a[1] & 3;
-        if (a[0] > 2) return null;
-        if (a[0] === 1) { st.chainPlaying = false; st.slots[k] = project(); }
-        else if (a[0] === 0 && st.slots[k]) {
-          st.chainPlaying = false; Object.assign(st, JSON.parse(JSON.stringify(st.slots[k])));
-          /* SAMPLE PERC tracks: DRUM's kit (project.c proj_perc). Removed factory presets keep their saved sound; only
-             the display index is normalized. */
-          st.tracks.forEach((t) => {
-            const pc = fromPerc({ engine: t.engine, p: t.p }, ENG.map((x) => x.name), P_E0);
-            if (pc) { t.engine = pc.engine; t.p = pc.p; t.preset = 0; }
-            if (t.preset >= ENG[t.engine].presets.length) t.preset = 0;
-          });
-        }
-        b(a[0]); b(k); b(st.slots[k] ? 1 : 0);
+        st.songRows.forEach((r) => { r.slots.forEach((s) => b(s ?? SONG.SILENT)); b(r.repeat); });
         break;
       }
       case CMD.NAMES:
@@ -2299,7 +2215,7 @@ function makeMockDevice(opt = {}) {
         if (r && input.onmidimessage) input.onmidimessage({ data: Uint8Array.from(r) });
         const ra = r ? r.slice(5, -1) : [];
         if (r && ((!syncCaps() && ((f.cmd === CMD.SET && f.a[0] === 1 && f.a[1] === G_ENGSEL) || f.cmd === CMD.PRESET))
-          || (f.cmd === CMD.PROJECT && f.a[0] === 0 && ra[2]) || (f.cmd === CMD.UP_LOAD && !ra[1]))) reloadPush();
+          || (f.cmd === CMD.UP_LOAD && !ra[1]))) reloadPush();
       }, f.cmd === CMD.SMP_ERASE ? 900 : f.cmd === CMD.SMP_BEGIN ? 120 : flash ? 150 : f.cmd === CMD.SMP_WRITE ? 25 + Math.random() * 10 : 4 + Math.random() * 12);
     },
   };
@@ -2369,7 +2285,7 @@ function makeMockDevice(opt = {}) {
   ];
   return {
     state: st, sim,
-    tables: { TP, GP, ENG, PATTERNS, P_COUNT, G_COUNT, NSTEP, P_E0, G_ENGSEL, P_SLCR, NTRK,
+    tables: { TP, GP, ENG, P_COUNT, G_COUNT, NSTEP, P_E0, G_ENGSEL, P_SLCR, NTRK,
       FM6: { bank: 0, own: FM6_OWN, init: FM6.INIT_PK, factory: FM6.FACTORY_PK } },   /* test_web.mjs: == the firmware */
     stop: () => timers.forEach(clearInterval),
     access: { sysexEnabled: true, inputs: new Map([[input.id, input]]), outputs: new Map([[output.id, output]]), onstatechange: null },
@@ -2509,7 +2425,7 @@ const TEXT = {
     fm6Legend: "R1〜R4 / L1〜L4: EG のレートとレベル、BP LD RD LC RC: キーボードレベルスケーリング、RS: レートスケーリング、AMS: LFO 音量変調、KVS: ベロシティ、OL: 出力レベル、MODE: 比率 / 固定、FC FF: 周波数（粗・細）、DET: デチューン（7 が中央）。● はキャリア。",
     fm6Pick: "読み込んだファイルの音色（押すと編集へ）:", fm6Picked: "編集中:", fm6Sent: "トラックへ送りました:", fm6Read: "トラックから読みました",
     fm6Loaded: "読み込みました", fm6BadSum: "チェックサム不一致あり",
-    fm6Keep: "残すには、トラックへ送ってから本体でユーザープリセット（SAVE）かプロジェクトに保存してください。",
+    fm6Keep: "残すには、トラックへ送ってから本体でユーザープリセット（SAVE）に保存してください。",
     fm6Short: "途中で切れたデータあり", fm6Skipped: "音色以外の {x} 件は無視",
     fm6NoVoice: "6 オペレーター FM の音色が見つかりません（32 音色バンクか 1 音色の SysEx が必要です）",
     fm6NotSysex: "SysEx ファイルではありません（6 オペレーター FM の 32 音色バンクか 1 音色の SysEx が必要です）",
@@ -2546,7 +2462,7 @@ const TEXT = {
     other: "English", connect: "接続", disconnect: "切断", mock: "モック（実機なし）",
     sound: "音色", engine: "エンジン", presets: "プリセット", initSound: "音色を初期化",
     track: "トラック",
-    saveFile: "ファイルに保存", loadFile: "ファイルを読み込む", projects: "プロジェクト",
+    saveFile: "ファイルに保存", loadFile: "ファイルを読み込む", projects: "ソングとバックアップ",
     load: "読込", save: "保存", used: "使用中", empty: "空", unknown: "—",
     steps: "ステップ", reload: "再読み込み", clearSeq: "シーケンスを消去",
     notesHelp: "ノートは C4 E4 G4 のように入力（最大 4 音、C4 = 60）。ヒットは DRUM のレーン名（KICK >SNARE HATCL、> はアクセント）。",
@@ -2559,8 +2475,7 @@ const TEXT = {
     ready: "接続しました", disconnected: "切断されました", lost: "Felucca が外されました",
     noreply: "応答がありません", error: "エラー: ", busy: "処理中",
     applying: "書き込み中 ", applied: "読み込みました", badfile: "ファイルを読み込めません: ",
-    savedSlot: "保存しました: スロット ", loadedSlot: "読み込みました: スロット ", emptySlot: "空のスロットです: ",
-    confirmSave: "スロット {n} に上書き保存しますか？", confirmLoad: "スロット {n} を読み込みますか？ 4 トラックすべての音色とシーケンスが置き換わります（元に戻せません）。",
+    emptySlot: "空のスロットです: ",
     confirmClear: "シーケンスを全部消しますか？", confirmInit: "音色を初期化しますか？ シーケンスはそのままです（本体の SAVE 長押しで元に戻せます）。",
     samples: "サンプル", smpHelp: "ファイルを選択、または入力から録音。波形の両端でトリム、ホイールで拡大。1枠に16音、合計約7秒。",
     zones: "ゾーン", smpName: "名前", chooseFiles: "ファイルを選ぶ", upload: "書き込む", erase: "消去", clearList: "リストを消す",
@@ -2590,7 +2505,7 @@ const TEXT = {
     savedLib: "ライブラリに保存しました: ", copiedLib: "ライブラリにコピーしました: ", imported: "読み込みました: ",
     skippedN: " 件（読めないもの {n} 件）", patchesN: " 件",
     putDone: "本体に書き込みました: スロット ", storedSlot: "本体に保存しました: スロット ", erasedSlot: "消去しました: スロット ",
-    loadedUser: "音色を読み込みました（シーケンスはそのまま。パターンは本体の SAVE > PHRASES から。SAVE 長押しで元に戻せます）: ", reloaded: "本体で音色が変わったので読み直しました", readingBank: "スロットを読み込み中",
+    loadedUser: "音色を読み込みました（シーケンスはそのまま。SAVE 長押しで元に戻せます）: ", reloaded: "本体で音色が変わったので読み直しました", readingBank: "スロットを読み込み中",
     badEngine: "このファームウェアにないエンジンです: ", flashFail: "書き込みに失敗しました（rc {rc}）",
     installer: "Felucca インストーラー",
     tabSeq: "シーケンサー", tabTracks: "トラック", tabSettings: "設定",
@@ -2598,8 +2513,7 @@ const TEXT = {
     bankConnect: "FM-1 を接続すると本体のユーザープリセットも扱えます。", bankNone: "このファームウェアにはユーザープリセットがありません。",
     mixer: "ミキサー", mixHelp: "本体の MIXER ページと同じ 4 トラック。フェーダーはレベル。パンはどのトラックも選択を変えずに書き込みます（0.8 のファームウェアでは一瞬そのトラックを選びます）。REC は本体での録音待機の表示です。",
     level: "レベル", pan: "パン", mute: "ミュート", rec: "REC", selectTrack: "選択", selectedTrack: "選択中",
-    projHelp: "プロジェクトは本体の状態をまとめて保存します: 4 トラックの音色とパターン、曲の並び順、選択中のトラック、グローバル設定。",
-    slot: "スロット", songTitle: "ソング", songHelp: "保存スロットのパターンと繰り返す回数を順に並べます。音色は現在のまま。並び順を残すには、上のプロジェクトを保存してください。切替はトラック1のパターン終端、曲末で停止します。", songAdd: "行を追加", songRemove: "最後の行を削除", songPlay: "先頭から再生", songStop: "停止", songReps: "回", songEmpty: "行を追加してください", songBusy: "停止してから編集してください", songInvalid: "スロットと回数を確認してください", songPlaying: "再生中の行", songSaved: "並び順を変更しました。プロジェクトを保存すると残せます。",
+    slot: "スロット", songTitle: "ソング", songHelp: "本体に保存したパターン（P01〜P24、SAVE > PATTERN）をトラックごとに選び、繰り返す回数と一緒に並べます。音色は現在のまま。並び順は本体の自動保存に残ります。切替は最初に鳴るトラックのパターン終端、曲末で停止します。", songAdd: "行を追加", songRemove: "最後の行を削除", songPlay: "先頭から再生", songStop: "停止", songReps: "回", songEmpty: "行を追加してください", songBusy: "停止してから編集してください", songInvalid: "パターンと回数を確認してください", songNotSaved: "本体に保存されていません", songMax: "1 曲に使えるパターンは 16 個までです", songPlaying: "再生中の行", songSaved: "並び順を変更しました。",
     system: "システム", firmware: "ファームウェア", sync: "同期", tracksN: "トラック", stepsN: "ステップ数", enginesL: "エンジン",
     smpSlots: "サンプルスロット", userBank: "ユーザープリセット", none: "なし",
   },
@@ -2612,7 +2526,7 @@ const TEXT = {
     fm6Legend: "R1..R4 / L1..L4: EG rates and levels; BP LD RD LC RC: keyboard level scaling; RS: rate scaling; AMS: LFO amplitude modulation; KVS: velocity; OL: output level; MODE: ratio / fixed; FC FF: coarse / fine frequency; DET: detune (7 = centre). ● = carrier.",
     fm6Pick: "Voices of the imported file (click to edit):", fm6Picked: "Editing:", fm6Sent: "Sent to track", fm6Read: "Read from track",
     fm6Loaded: "Loaded", fm6BadSum: "a checksum did not match",
-    fm6Keep: "To keep a voice, send it to a track, then save a user preset (SAVE) or a project on the device.",
+    fm6Keep: "To keep a voice, send it to a track, then save a user preset (SAVE) on the device.",
     fm6Short: "some data was cut short", fm6Skipped: "{x} non-voice blocks skipped",
     fm6NoVoice: "No 6-operator FM voices found (expects a 32-voice bank or single-voice SysEx)",
     fm6NotSysex: "Not a SysEx file (expects a 6-operator FM 32-voice bank or single-voice SysEx)",
@@ -2649,7 +2563,7 @@ const TEXT = {
     other: "日本語", connect: "Connect", disconnect: "Disconnect", mock: "Mock device (no hardware)",
     sound: "Sound", engine: "Engine", presets: "Presets", initSound: "Init sound",
     track: "Track",
-    saveFile: "Save to file", loadFile: "Load file", projects: "Projects",
+    saveFile: "Save to file", loadFile: "Load file", projects: "Song & backup",
     load: "Load", save: "Save", used: "used", empty: "empty", unknown: "—",
     steps: "Steps", reload: "Reload", clearSeq: "Clear sequence",
     notesHelp: "Enter notes like C4 E4 G4 (up to 4, C4 = 60). Hits are DRUM lanes: KICK >SNARE HATCL (> = accent).",
@@ -2662,8 +2576,7 @@ const TEXT = {
     ready: "Connected", disconnected: "Disconnected", lost: "Felucca was unplugged",
     noreply: "No reply from the device", error: "Error: ", busy: "Busy",
     applying: "Writing ", applied: "Loaded", badfile: "Cannot read the file: ",
-    savedSlot: "Saved to slot ", loadedSlot: "Loaded slot ", emptySlot: "Empty slot: ",
-    confirmSave: "Overwrite slot {n}?", confirmLoad: "Load slot {n}? The sounds and sequences of all four tracks are replaced (no undo).",
+    emptySlot: "Empty slot: ",
     confirmClear: "Clear the whole sequence?", confirmInit: "Reset the sound to the engine defaults? The sequence stays (hold SAVE on the device to undo).",
     samples: "Samples", smpHelp: "Choose files or record an input. Drag waveform ends to trim; wheel to zoom. Up to 16 sounds and about 7 s per slot.",
     zones: "zones", smpName: "Name", chooseFiles: "Choose files", upload: "Upload", erase: "Erase", clearList: "Clear list",
@@ -2693,7 +2606,7 @@ const TEXT = {
     savedLib: "Saved to the library: ", copiedLib: "Copied to the library: ", imported: "Imported: ",
     skippedN: " ({n} unreadable)", patchesN: " patches",
     putDone: "Written to the device: slot ", storedSlot: "Stored on the device: slot ", erasedSlot: "Erased slot ",
-    loadedUser: "Sound loaded (the sequence stays; its pattern is on the device under SAVE > PHRASES; hold SAVE to undo): ", reloaded: "The sound changed on the device: read again", readingBank: "Reading the slots",
+    loadedUser: "Sound loaded (the sequence stays; hold SAVE to undo): ", reloaded: "The sound changed on the device: read again", readingBank: "Reading the slots",
     badEngine: "This firmware has no such engine: ", flashFail: "Write failed (rc {rc})",
     installer: "Felucca installer",
     tabSeq: "Sequencer", tabTracks: "Tracks", tabSettings: "Settings",
@@ -2701,8 +2614,7 @@ const TEXT = {
     bankConnect: "Connect the FM-1 to see its user presets too.", bankNone: "This firmware has no user presets.",
     mixer: "Mixer", mixHelp: "The four tracks of the device's MIXER page. The fader is the level. Pan is written to any track without changing the selection (firmware 0.8: by selecting it for a moment). REC shows a track armed for live recording on the device.",
     level: "Level", pan: "Pan", mute: "Mute", rec: "REC", selectTrack: "Select", selectedTrack: "Selected",
-    projHelp: "A project keeps the sounds and patterns of all four tracks, the song chain, the selected track and the global settings.",
-    slot: "Slot", songTitle: "Song", songHelp: "Arrange patterns from saved slots and choose their repeats. The current sounds stay. Save a project above to keep the chain. Rows change at the end of track 1; the song stops at the end.", songAdd: "Add row", songRemove: "Remove last row", songPlay: "Play from start", songStop: "Stop", songReps: "repeats", songEmpty: "Add a row first", songBusy: "Stop before editing", songInvalid: "Check slots and repeats", songPlaying: "Playing row", songSaved: "Chain changed. Save a project to keep it.",
+    slot: "Slot", songTitle: "Song", songHelp: "Pick a pattern saved on the device (P01..P24, SAVE > PATTERN) for each track, row by row, with its repeats. The current sounds stay; the device's autosave keeps the order. Rows change at the end of the first track that plays; the song stops at the end.", songAdd: "Add row", songRemove: "Remove last row", songPlay: "Play from start", songStop: "Stop", songReps: "repeats", songEmpty: "Add a row first", songBusy: "Stop before editing", songInvalid: "Check patterns and repeats", songNotSaved: "not saved on the device", songMax: "A song uses 16 patterns at most", songPlaying: "Playing row", songSaved: "Song order changed.",
     system: "System", firmware: "Firmware", sync: "Sync", tracksN: "Tracks", stepsN: "Steps", enginesL: "Engines",
     smpSlots: "Sample slots", userBank: "User presets", none: "none",
   },
@@ -2797,7 +2709,7 @@ let mock = null;
 
 /* -------------------------------------------------------------- state --- */
 let access = null;     /* MIDIAccess */
-let dev = null;        /* {link, input, output, info, pdesc[], gdesc[], names[][], dump, steps[], slotUsed[],
+let dev = null;        /* {link, input, output, info, pdesc[], gdesc[], names[][], dump, steps[],
                           keys[] (paramKeys), watch (pushes on), bank ({total, slots[]} or null: no user bank)} */
 let busy = 0;          /* multi-request operations in progress: no polling */
 /* A completion from an unplugged device must not release a new session's work. */
@@ -2818,7 +2730,7 @@ const ctl = new Map(); /* key "s:id" -> {input, out, desc, scope, id, row} */
 const sets = new Map(); /* key -> {last: time of the user's last change, sent: the value last requested} */
 let needReload = false; /* a RELOAD push came: re-read DESC, DUMP and steps when free */
 let lastDump = 0;      /* Date.now() of the last DUMP */
-/* the device also pushes RELOAD after loads the editor asked for (PROJECT load, UP_LOAD; before INFO 53 bit 1
+/* the device also pushes RELOAD after loads the editor asked for (UP_LOAD; before INFO 53 bit 1
    also SET of G_ENGSEL and PRESET); the editor re-reads after those anyway, so it skips that many RELOADs for a
    moment. sound: a PRESET / G_ENGSEL load (no RELOAD comes from newer firmware: none to skip) */
 const selfReload = { n: 0, until: 0 };
@@ -2847,7 +2759,7 @@ const LAYOUT = (pe0) => [
                                                     FELUCCA_FM4=1 firmware only: DIGITAL retired, its engine is "-") */
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),
     ["OP LVL", 0, [65, 70, 75, 80]]] }] : []),
-  { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 41, 42]], ["VOICE 2", 0, [43, 44, 39, 40]]] },
+  { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 44, 39, 42]], ["VOICE 2", 0, [43, 38, 41, 40]]] },
   { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DLY", 1, [4, 5, 6, 7]], ["REVERB", 1, [24, 8, 9]], ["CHORUS", 1, [10, 11]]] },   /* G_RTYPE 24: ROOM / SPRING / HALL */
   { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, P_CHORD]] : [])] },   /* CHRD VOIC 81, 82 */
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
@@ -2897,7 +2809,7 @@ async function connect() {
     });
     input.onmidimessage = (e) => link.receive(e.data);
     if (input.open) await input.open().catch(() => {});
-    dev = { link, input, output, info: null, pdesc: [], gdesc: [], names: [], dump: null, steps: [], slotUsed: [null, null, null, null],
+    dev = { link, input, output, info: null, pdesc: [], gdesc: [], names: [], dump: null, steps: [],
       keys: null, watch: false, bank: null };
     connectedDevice = dev;
     setLabel($("connect"), t("disconnect"));
@@ -2974,10 +2886,6 @@ async function load(d) {
       const r = parse[CMD.NAMES](await sessionRequest(d, req.names(e)));
       d.names[e] = r.names;
       d.titles[e] = r.titles;
-    }
-    for (let k = 0; k < 4; k++) {                    /* PROJECT op 2: is the slot used */
-      try { d.slotUsed[k] = parse[CMD.PROJECT](await sessionRequest(d, req.project(2, k))).used; }
-      catch (e) { if (e.message === "closed") throw e; }
     }
     try { d.smp = parse[CMD.SMP_INFO](await sessionRequest(d, req.smpInfo())); }
     catch (e) { if (e.message === "closed") throw e; d.smp = null; }   /* older firmware, or no flash */
@@ -3280,34 +3188,10 @@ function refreshAll() {
 }
 function report(err) { if (err && err.message !== "closed") { console.warn(err); sayK("error", err.message); } }
 
-/* projects: the protocol cannot ask whether a slot is used without loading or saving it */
+/* the song and backup tab (MRC: no PROJECT slots, the device's autosave is the project) */
 function renderSlots() {
   renderSong();
   renderBackup();
-  const box = $("slots");
-  box.replaceChildren();
-  for (let i = 0; i < 4; i++) {
-    const u = dev.slotUsed[i];
-    box.append(el("span", { text: String.fromCharCode(65 + i) }),
-      el("span", { class: "dim", text: u == null ? t("unknown") : t(u ? "used" : "empty") }),
-      el("button", { ic: "symbol_folder_open", onclick: () => project(0, i) }, t("load")),
-      el("button", { ic: "port_disk", onclick: () => project(1, i) }, t("save")));
-  }
-}
-async function project(op, slot) {
-  if (!dev) return;
-  if (!confirm(t(op ? "confirmSave" : "confirmLoad").replace("{n}", slot + 1))) return;
-  const releaseBusy = beginBusy();
-  try {
-    /* save writes flash: a long timeout and no retry */
-    if (!op) selfLoad();
-    const r = parse[CMD.PROJECT](await rq(req.project(op, slot), { timeout: 4000, retries: 0 }));
-    dev.slotUsed[slot] = r.used;
-    renderSlots();
-    if (!op && r.used) await afterSoundChange();
-    if (dev.info.chainRows) { dev.song = parse[CMD.SONG](await rq(req.song())); renderSong(); }
-    sayK(op ? "savedSlot" : r.used ? "loadedSlot" : "emptySlot", String(slot + 1));
-  } catch (err) { report(err); } finally { releaseBusy(); }
 }
 
 function renderSong() {
@@ -3325,26 +3209,34 @@ function renderSong() {
   s.rows.forEach((r, i) => {
     const line = el("div", { class: "bar", style: "margin:8px 0" });
     line.append(el("span", { text: String(i + 1) }));
-    const sel = el("select", { disabled: !!s.playing, "aria-label": `${t("slot")} ${i + 1}` });
-    for (let k = 0; k < 4; k++) sel.append(el("option", { value: k, text: `${t("slot")} ${k + 1}${dev.slotUsed[k] ? "" : ` (${t("empty")})`}` }));
-    sel.value = String(r.slot);
-    sel.addEventListener("change", () => { const next = s.rows.map((x) => ({ ...x })); next[i].slot = +sel.value; op(() => changeSong(1, next)); });
+    const copy = () => s.rows.map((x) => ({ slots: x.slots.slice(), repeat: x.repeat }));
+    for (let k = 0; k < 4; k++) {                    /* (MRC) a saved pattern per track: P01..P24, "-" silent */
+      const sel = el("select", { disabled: !!s.playing, "aria-label": `${i + 1} T${k + 1}` });
+      sel.append(el("option", { value: "-", text: `T${k + 1} -` }));
+      for (let p = 0; p < SONG.NPAT; p++) sel.append(el("option", { value: p, text: `T${k + 1} ${patName(p)}` }));
+      sel.value = r.slots[k] == null ? "-" : String(r.slots[k]);
+      sel.addEventListener("change", () => { const next = copy(); next[i].slots[k] = sel.value === "-" ? null : +sel.value; op(() => changeSong(1, next)); });
+      line.append(sel);
+    }
     const reps = el("input", { type: "number", min: 1, max: 16, value: r.repeat, disabled: !!s.playing, style: "width:64px", "aria-label": `${t("songReps")} ${i + 1}` });
-    reps.addEventListener("change", () => { const v = +reps.value; if (!Number.isInteger(v) || v < 1 || v > 16) { reps.value = r.repeat; return; } const next = s.rows.map((x) => ({ ...x })); next[i].repeat = v; op(() => changeSong(1, next)); });
-    line.append(sel, reps, el("span", { text: t("songReps") }));
+    reps.addEventListener("change", () => { const v = +reps.value; if (!Number.isInteger(v) || v < 1 || v > 16) { reps.value = r.repeat; return; } const next = copy(); next[i].repeat = v; op(() => changeSong(1, next)); });
+    line.append(reps, el("span", { text: t("songReps") }));
     rows.append(line);
   });
 }
+const patName = (p) => "P" + String(p + 1).padStart(2, "0");   /* the device's saved pattern p (pattern.c pat_tag) */
 async function changeSong(action, rows = []) {
   const r = parse[CMD.SONG](await rq(req.song(action, rows)));
-  if (r.rc) throw new Error(r.rc >= 3 ? `${t("slot")} ${r.rc - 2}: ${t("empty")}` : t(r.rc === 2 ? "songBusy" : "songInvalid"));
+  if (r.rc) throw new Error(r.rc >= 4 ? `${patName(r.rc - 4)}: ${t("songNotSaved")}` :
+    t(r.rc === 3 ? "songMax" : r.rc === 2 ? "songBusy" : "songInvalid"));
   dev.song = r;
   renderSong();
   if (action === 1) sayK("songSaved");
 }
 $("songplay").addEventListener("click", () => op(() => changeSong(dev.song?.playing ? 3 : 2)));
-$("songadd").addEventListener("click", () => op(() => changeSong(1, [...dev.song.rows, { slot: dev.song.rows.at(-1)?.slot || 0, repeat: 1 }])));
-$("songremove").addEventListener("click", () => op(() => changeSong(1, dev.song.rows.slice(0, -1))));
+$("songadd").addEventListener("click", () => op(() => changeSong(1, [...dev.song.rows.map((x) => ({ slots: x.slots.slice(), repeat: x.repeat })),
+  { slots: dev.song.rows.at(-1)?.slots.slice() || [0, 0, 0, 0], repeat: 1 }])));
+$("songremove").addEventListener("click", () => op(() => changeSong(1, dev.song.rows.slice(0, -1).map((x) => ({ slots: x.slots.slice(), repeat: x.repeat })))));
 setInterval(async () => {
   if (!dev?.info?.chainRows || busy || document.hidden || !dev.link.idle || tab !== "projects") return;
   const releaseBusy = beginBusy();

@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The editor's full backup (editor_backup.c: LIST / GET / PUT) against simulated NOR flash:
- * CRC before any write, stale runtime copies, USB resets and timeouts, malformed objects, older
- * project formats, settings values and user preset banks kept byte for byte. */
+ * CRC before any write, stale runtime copies, USB resets and timeouts, malformed objects, the pattern
+ * banks (MRC: ids 2..5), settings values and user preset banks kept byte for byte. */
 static unsigned char host_samples[3][0x14000];
 #define SMP_USER_XIP(k) host_samples[k]
 #define main hostsim_main
@@ -37,7 +37,6 @@ static void fl_plain_window_init(void) {}
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
-#include "old_pack.h"
 
 enum { ED_BACKUP_LIST = 65, ED_BACKUP_GET, ED_BACKUP_PUT };
 static uint8_t rep[4096];
@@ -75,7 +74,7 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
-    memset(proj_slot, 0, sizeof proj_slot);
+    pat_boot();                                          /* (the mirror: no patterns) */
     memset(up_bank, 0, sizeof up_bank);
     memset(&persist_saved, 0, sizeof persist_saved);
     memset(&settings, 0, sizeof settings);
@@ -173,7 +172,7 @@ int main(void)
     int bad = 0;
     uint32_t len = 0, crc = 0, before;
     static project_store_t st;
-    static project_v6_t v6;
+    static uint8_t bank[PAT_BANK_SIZE];
     persist_t ps;
 
     reset();
@@ -181,10 +180,10 @@ int main(void)
     bad += check("LIST captures the runtime: 13 objects (id 8 empty, id 9 the FM6 patches), runtime 3840 B (FUN10)",
                  list(0, &len, &crc) == 0 && rep[2] == 13u && len == sizeof(project_store_t) && len == 3840u &&
                  crc == st_crc32(ED_BK_RAW, len));
-    bad += check("an empty project slot lists as length 0", list(2, &len, &crc) == 0 && len == 0);
+    bad += check("an empty pattern bank lists as length 0", list(2, &len, &crc) == 0 && len == 0);
     bad += check("GET of the runtime copy", get(0, 0, 64) == 0);
-    project_save(0);
-    bad += check("a project save after LIST reused the staging RAM: GET of the runtime is stale (5)",
+    pat_store(0, &trk[0], "A");
+    bad += check("a pattern save after LIST reused the staging RAM: GET of the runtime is stale (5)",
                  get(0, 0, 64) == 5u);
     bad += check("a new LIST makes it readable again", list(0, &len, &crc) == 0 && get(0, 0, 64) == 0);
     usb.resets++;
@@ -241,7 +240,8 @@ int main(void)
 
     /* malformed requests */
     bad += check("an unknown object id is refused", put_begin(8, sizeof ps, 0) == 1u);
-    bad += check("a project of the wrong length is refused", put_begin(2, sizeof(project_store_t) - 4u, 0) == 1u);
+    bad += check("a pattern bank of the wrong length is refused", put_begin(2, PAT_BANK_SIZE - 4u, 0) == 1u);
+    bad += check("an upstream PROJECT slot (3840 B) as id 2 is refused", put_begin(2, sizeof st, 0) == 1u);
     bad += check("settings of the wrong length are refused", put_begin(1, sizeof ps + 4u, 0) == 1u);
     bad += check("a chunk without a begin is refused (5)", (ed_bk_put = 0, put_chunk(1, 0, (const uint8_t *)&ps, 16)) == 5u);
     put_begin(1, sizeof ps, st_crc32(&ps, sizeof ps));
@@ -263,65 +263,35 @@ int main(void)
     put_begin(1, sizeof ps, st_crc32(&ps, sizeof ps));
     fm1_ms += 16000u;
     bad += check("16 s without a chunk ends the PUT (5)", put_chunk(1, 0, (const uint8_t *)&ps, 64) == 5u);
-    put_begin(2, sizeof st, 0);
+    put_begin(2, PAT_BANK_SIZE, 0);
     put_chunk(2, 0, (const uint8_t *)&ps, 64);
-    project_save(1);
-    bad += check("a project save during PUT (the staging RAM) ends it (5)",
+    pat_store(1, &trk[0], "B");
+    bad += check("a pattern save during PUT (the staging RAM) ends it (5)",
                  put_chunk(2, 64, (const uint8_t *)&ps, 64) == 5u);
     transport_req = 1;
     bad += check("PUT while starting PLAY is refused (3)", put_begin(1, sizeof ps, 0) == 3u);
     transport_req = 0;
 
-    /* projects */
+    /* pattern banks: id 2 + bank, 6 patterns each */
     reset();
     trk[1].step[3] = (step_t){{64}, 1, ST_NOTE, 0, 96, 0, 0};
-    project_capture(&proj_scratch);
-    proj_pack(&st, &proj_scratch);
-    bad += check("a FUN10 project restores into slot 3 (flash and RAM)",
-                 put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 0 && project_used(2) &&
-                 !memcmp(&proj_slot[2], &st, sizeof st) && st_load(OBJ_PROJECT0 + 2, &proj_wire, sizeof proj_wire) == (int)sizeof st);
-    {   /* FUN8 of 1.0.x (3584 bytes, 91 parameters) and FUN9 of 1.1 (3648, 99): restore as FUN10, E0 at P_E0, lanes
-         * 100 %, the four 1.2 parameters at their defaults; a FUN9 with 64 motion records keeps them all */
-        static uint8_t v8[3584], v9[3648];
-        uint32_t k, ok;
-        trk[2].p[P_E0] = 2;
-        trk[2].p[P_LN3] = 90;
-        project_capture(&proj_scratch);
-        proj_scratch.t[2].p[P_LN3] = 127;              /* (FUN8 had no lane levels) */
-        bad += check("a FUN8 project (1.0.x) restores as FUN10 into slot 2, E0 at P_E0, lane levels 100 %",
-                     old_pack(v8, &proj_scratch, OLD_FUN8, 91u) == sizeof v8 &&
-                     put_all(3, v8, sizeof v8, st_crc32(v8, sizeof v8)) == 0 && ((uint32_t *)proj_slot[1].raw)[0] == PROJ_MAGIC &&
-                     proj_import(&proj_scratch, &proj_slot[1], sizeof st) && proj_scratch.t[2].p[P_E0] == 2 &&
-                     proj_scratch.t[2].p[P_LN3] == 127 && proj_scratch.t[1].step[3].note[0] == 64u);
-        project_capture(&proj_scratch);
-        for (k = 0; k < 64u; k++)
-            proj_scratch.motion.event[k] = (motion_event_t){(uint8_t)(1u << 6 | k), P_REV, (int8_t)k};
-        proj_scratch.motion.count = 64;
-        proj_scratch.motion.on = 2;
-        ok = old_pack(v9, &proj_scratch, OLD_FUN9, 99u) == sizeof v9 &&
-             put_all(4, v9, sizeof v9, st_crc32(v9, sizeof v9)) == 0 && ((uint32_t *)proj_slot[2].raw)[0] == PROJ_MAGIC &&
-             proj_import(&proj_scratch, &proj_slot[2], sizeof st) && proj_scratch.t[2].p[P_E0] == 2 &&
-             proj_scratch.t[2].p[P_LN3] == 90 && proj_scratch.motion.count == 64u && proj_scratch.motion.event[63].value == 63 &&
-             proj_scratch.t[0].p[P_LSYNC] == 0 && proj_scratch.t[0].p[P_LTRIG] == 0 && proj_scratch.t[0].p[P_LPOL] == 0 &&
-             proj_scratch.t[0].p[P_SQNT] == 1;
-        bad += check("a FUN9 project (1.1) restores as FUN10 into slot 3: its 64 records, the lanes, LFO 2 / QUANTIZE defaults", ok);
-    }
-    memset(&v6, 0, sizeof v6);                           /* FUN6: 69 parameters, steps out of range */
-    v6.magic = PROJ_MAGIC_V6;
-    v6.size = sizeof v6;
-    for (uint32_t i = 0; i < G_COUNT; i++)
-        v6.g[i] = GP[i].def;
-    for (uint32_t i = 0; i < NTRK; i++)
-        v6.t[i].engine = trk[i].engine;
-    v6.t[0].step[0] = (step10_t){{255, 72}, 9, 7, 0, 96, 0, 0};
-    v6.t[0].p[61] = 3;                                   /* old E0 */
-    memset(&v6.chain, 0, sizeof v6.chain);
-    v6.sum = proj_hash(&v6, sizeof v6 - 4u);
-    bad += check("a FUN6 project restores as FUN10, bounded, its E0 at P_E0",
-                 put_all(5, &v6, sizeof v6, st_crc32(&v6, sizeof v6)) == 0 && ((uint32_t *)proj_slot[3].raw)[0] == PROJ_MAGIC &&
-                 proj_import(&proj_scratch, &proj_slot[3], sizeof st) && proj_scratch.t[0].step[0].n == 4u &&
-                 proj_scratch.t[0].step[0].note[0] == 127u && proj_scratch.t[0].p[P_E0] ==
-                 clamp(3, param_desc_of(trk[0].engine, P_E0)->min, param_desc_of(trk[0].engine, P_E0)->max));
+    pat_store(7, &trk[1], "KEEP");                       /* (bank 1: id 3) */
+    bad += check("a saved pattern's bank lists with its length", list(3, &len, &crc) == 0 && len == PAT_BANK_SIZE &&
+                 list(4, &len, &crc) == 0 && len == 0);
+    bad += check("..its bytes are the flash's", st_load(OBJ_PAT0 + 1, bank, sizeof bank) == (int)sizeof bank);
+    pat_erase(7);
+    bad += check("a bank restores (flash and the mirror)", put_all(3, bank, sizeof bank, st_crc32(bank, sizeof bank)) == 0 &&
+                 pat_used(7) && str_eq(pat_info(7)->name, "KEEP"));
+    bad += check("..into another id: its patterns there (P14)", put_all(4, bank, sizeof bank, st_crc32(bank, sizeof bank)) == 0 &&
+                 pat_used(13) && pat_get(13, &trk[2]) && trk[2].step[3].note[0] == 64u);
+    erase_error = 1;
+    bad += check("a flash error on commit (4) keeps the patterns", put_all(4, bank, sizeof bank, st_crc32(bank, sizeof bank)) == 4u &&
+                 pat_used(13));
+    erase_error = 0;
+    bad += check("an empty bank object clears its patterns", put_all(4, 0, 0, st_crc32(0, 0)) == 0 && !pat_used(13) && pat_used(7));
+    bank[0] ^= 1;                                        /* (not a pattern bank) */
+    bad += check("a bank of another layout is refused, nothing written",
+                 put_all(3, bank, sizeof bank, st_crc32(bank, sizeof bank)) == 2u && pat_used(7));
     {   /* 1.0.3: the FM6 patch bank (id 8) is retired; an older archive's bank moves into its user presets (ids 6, 7
          * restored first), the user presets' patches are id 9 */
         static up_bank_t ub;
@@ -379,17 +349,6 @@ int main(void)
         bad += check("an id 9 of the wrong size is refused at begin (1)", put_begin(9, sizeof got - 4u, 0) == 1u);
         bad += check("an id 10 is refused (1)", put_begin(10, 0, 0) == 1u);
     }
-    memcpy(&st, &proj_slot[2], sizeof st);
-    erase_error = 1;
-    proj_slot[2].raw[100] ^= 1;                          /* (marks the RAM copy, to see it is kept) */
-    memcpy(&v6, &proj_slot[2], sizeof v6);
-    bad += check("a flash error on commit (4) keeps the slot's RAM copy",
-                 put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 4u && !memcmp(&proj_slot[2], &v6, sizeof v6));
-    erase_error = 0;
-    bad += check("an empty project object clears the slot", put_all(4, 0, 0, st_crc32(0, 0)) == 0 && !project_used(2));
-    st.raw[200] ^= 1;                                    /* hash no longer matches */
-    bad += check("a project whose own hash fails is refused", put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 2u);
-
     /* the runtime */
     reset();
     trk[2].step[5] = (step_t){{67}, 1, ST_NOTE, 0, 96, 0, 0};

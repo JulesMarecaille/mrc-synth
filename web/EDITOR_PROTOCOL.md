@@ -1,5 +1,13 @@
 # Felucca editor protocol (SysEx over USB-MIDI)
 
+**MRC firmware.** The tables below are this firmware's; the history after them is upstream's and still says
+"PROJECT" where these changed:
+- `PROJECT` (9) is retired: no reply. The device has no project slots; its autosave is the project.
+- `UP_GET` / `UP_PUT` carry no pattern: a user preset is a sound only (SAVE > PATTERN saves sequences apart).
+- `SONG` (33) takes ops 4..7 only, and a section names a saved pattern per track (0..23 = P01..P24, 127 "-").
+- `BACKUP_*` ids 2..5 are the saved patterns' four banks (3608 bytes each, magic "PTB1"), not projects.
+- MENU id 15 (RESTORE LAST) is retired: the autosave is always on.
+
 The firmware side is `firmware/src/editor.c`. Commands 1-15, track selection, dumps, step reads
 and parameter writes (27, 29, 30, 31) were checked on hardware. `tests/editor_test.c` also exercises the real C
 handler, malformed transfers and stop timeouts against simulated flash. User-preset
@@ -193,7 +201,7 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 | 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel, then (v5) hits (3 bytes, below), then (v7) chance 0..100, then (`52 01`) ratchet 1..4, then (`54 01`, 1.2) nudge + 8 (0..15: −8..+7 sixteenths of the step), then (`4B 01`, 1.5.5) condition 0..11 (0 none; with one the chance byte says 100) |
 | 7 STEP_SET | index, n, note0..3, time, flags, vel [, hits (3 bytes, v5) [, chance 0..100 (v7) [, ratchet 1..4 [, nudge + 8, 0..15 (1.2) [, condition 0..11 (1.5.5)]]]]] | same as STEP_GET (after the write). Without the hits the step keeps its own; without the chance, the ratchet or the nudge it keeps its own. The chance can only follow the hits, the ratchet the chance, the nudge the ratchet, the condition the nudge; a nudge byte above 15 or a condition above 11: no reply, nothing written. Without the condition byte a chance of 100 keeps the step's condition (below) |
 | 8 PRESET | engine, preset | engine, preset (applies the preset's sound to the selected track and sends; the steps and the track's own parameters stay, see "Sound loads and undo"). For another track, select it with `TRACK` first |
-| 9 PROJECT | op (0 load, 1 save, 2 query), slot 0..3 | op, slot, used (1/0). Save writes flash: allow ~2 s; it stops the transport first (see "Saves while playing") |
+| 9 PROJECT | retired (MRC: no project slots) | none |
 | 10 NAMES | engine | engine, count, count preset-name strings, then the two edit-page titles |
 | 11 SMP_BEGIN | slot 0..2 | slot, rc (0 ok). Erases the slot's header sector: the slot is empty from now on |
 | 12 SMP_WRITE | slot, offset (3 × 7 bit, LSB first), pack7 data (≤ 256 bytes) | slot, offset, rc: 0 ok, 1 arguments, 2 erase, 3 write, 4 slot in use (send SMP_BEGIN first). Offset ≥ 512 and a multiple of 256; writes go in increasing order (a write at a 4 KiB boundary erases that sector) |
@@ -201,8 +209,8 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 | 14 SMP_ERASE | slot | slot, rc (erases the whole slot, ~1 s) |
 | 15 SMP_INFO | — | slots, slot KiB, then per slot: zone count (0 = empty), name string, data KiB |
 | 16 UP_LIST | start, count (1..16) | start, count, total slots, then per slot: used (0/1), engine, name string ("" if unused); 1.2: then one category byte per slot listed (below; 0 if unused) |
-| 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, 16 × (note, flags), then (v5) kind (0 a note pattern, 1 a drum grid) and for kind 1 16 × hi; 1.2: then the category |
-| 18 UP_PUT | slot, engine, name, P_COUNT × v14, 16 × (note, flags) [, kind 0 or 1, 16 × hi (v5) [, category (1.2)]] | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s |
+| 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, the category (MRC: no pattern) |
+| 18 UP_PUT | slot, engine, name, P_COUNT × v14 [, category] (MRC: no pattern) | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s |
 | 19 UP_STORE | slot, name | slot, rc. Stores the current sound: engine, parameters, the first 16 sequencer steps as the pattern (TIE steps → flag 4) |
 | 20 UP_LOAD | slot | slot, rc (0 ok, 1 empty/invalid). Applies its sound (not its pattern; the steps stay) |
 | 21 UP_ERASE | slot | slot, rc |
@@ -520,11 +528,11 @@ stay where they were. No trailing byte means no SONG command: hide its controls.
 
 | cmd | Request args | Reply args |
 | --- | --- | --- |
-| 33 SONG | op 0 query; op 1 set, count 0..16, count × (slot 0..3, repeat 1..16); op 2 start; op 3 stop | op, rc, count, running 0/1, row 0..15, remaining repeats, count × (slot, repeat) |
+| 33 SONG | MRC: op 4 query; op 5 set, count 0..16, count × (4 × pattern 0..23 or 127 "-", repeat 1..16); op 6 start; op 7 stop | op, rc, count, running 0/1, row 0..15, remaining repeats, count × (4 × pattern, repeat) |
 
-A set must have exactly `2 + count × 2` argument bytes. rc 0 = accepted,
-1 = invalid rows (or an empty chain on start), 2 = busy, 3..6 = source slot 0..3
-is empty. Rejected sets keep every previous row. Set edits RAM; PROJECT save
+MRC: a set must have exactly `2 + count × 5` argument bytes; ops 0..3 get no reply. rc 0 = accepted,
+1 = invalid sections (or an empty song on start), 2 = busy, 3 = more than 16 different patterns, 4 + k = pattern k
+is not saved. (Upstream, below: rows or sections of PROJECT slots 0..3, rc 3..6 an empty slot.) Rejected sets keep every previous row. Set edits RAM; PROJECT save
 persists it, PROJECT load recalls it. A stop/start is acknowledged before the
 next audio block; query reports the actual running state. `row` and `remaining`
 are meaningful only while running. Rows always start from 0, with track 1's
@@ -810,7 +818,7 @@ this firmware sends 3. Requests name objects, never flash addresses.
 | --- | --- | --- |
 | 0 | runtime: the music being played now, as a FUN10 project (1.1: FUN9, 3648; 1.0.x: FUN8, 3584; firmware before FM6: FUN7, 3388) | 3840 |
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, ...) | the settings record's size |
-| 2..5 | PROJECT slots 1..4 (FUN10; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584) | 3840, or 0 if empty |
+| 2..5 | MRC: the saved patterns' banks (P01..P06 .. P19..P24: magic "PTB1", 6, 0, record size 600 LE, 6 records; firmware/src/pattern.c); upstream PROJECT slots 1..4 | 3608, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
 | 8 | the FM6 patch bank of 1.0..1.0.2 (B1..B27). Since 1.0.3 always listed empty (see below) | 3472, or 0 if empty |
 | 9 | the user presets' FM6 patches (1.0.3; `up_fm6.c`: per slot a tag and the packed patch) | 3728, or 0 if none |
@@ -978,7 +986,7 @@ F7` (rc 0, 16 entries, the first CC74 on T4 id 98).
 COLOR (MENU > DISPLAY, Discussion #239, #244) has a palette of the user's as its 11th value, CUSTOM. A palette is five
 stored colours, BG SURF TEXT THEME ACCENT; the device derives the other tokens (MID, DIM, LINE, SEL, TINT, INK, RAISE, KEY,
 LANE, GRID, REC) from them with fixed blends, as for the built-in palettes (`firmware/src/gfx.c palette_set`,
-`tools/gen_ui_palettes.py`), CUSTOM is not GREY and not MONO (the channels blend as they are). The colours are RGB565,
+`tools/gen_ui_palettes.py`), CUSTOM is not MRC and not MONO (the channels blend as they are). The colours are RGB565,
 sent as three 7-bit bytes each: red 0..31, green 0..63, blue 0..31. CUSTOM is part of the settings (kept across
 power-off, not in projects or user presets; a full backup carries it with the settings object, id 1: bytes 0..9 and 12 of
 the favorites' 16th row). Firmware before 1.6 keeps the bytes (a round trip through it does not lose the palette) and shows
@@ -1025,8 +1033,8 @@ advertises 9 (palette and favorites).
 | 37 FAV_GET | engine, start v14, count 1..32 | rc; on success: engine, start v14, count, count × on/off |
 | 38 FAV_SET | engine, preset v14, on/off | rc; when applied: engine, preset v14, on/off |
 
-UI_SET ids: 0 palette (0..count-1, the order of UI_PALETTES: GREY GREEN AMBER ICE VIOLET ROSE PAPER
-HI-CON NIGHT MONO; 1.0.2: GREY is the MONO of 1.0.1, MONO a new black and white palette; 1.6: CUSTOM last while one is stored), 1 font (retired: rc 2), 2 reserved, 3 preset filter (0 all, 1 favorites). Unsupported state
+UI_SET ids: 0 palette (0..count-1, the order of UI_PALETTES: MRC GREEN AMBER ICE VIOLET ROSE PAPER
+HI-CON NIGHT MONO; 1.0.2: MRC (then GREY) is the MONO of 1.0.1, MONO a new black and white palette; 1.6: CUSTOM last while one is stored), 1 font (retired: rc 2), 2 reserved, 3 preset filter (0 all, 1 favorites). Unsupported state
 fields are 127.
 Both u28 signatures are four least-significant-first 7-bit bytes; compare them
 to refresh changed favorites and user slots. Factory references use stable
@@ -1092,7 +1100,7 @@ before MIDI IN the first 21, 1.2 the first 23, 1.3 / 1.4 the first 24, 1.5 / 1.5
 
 | index | id | name | kind | values (min 0) | default | tab |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | 0 | COLOR | 0 | 0..9: GREY GREEN AMBER ICE VIOLET ROSE PAPER HI-CON NIGHT MONO (the order of `UI_PALETTES`); 1.6: 10 CUSTOM while one is stored (CUSTOM palette, cmds 80, 81) | GREY | 0 DISPLAY |
+| 0 | 0 | COLOR | 0 | 0..9: MRC GREEN AMBER ICE VIOLET ROSE PAPER HI-CON NIGHT MONO (the order of `UI_PALETTES`); 1.6: 10 CUSTOM while one is stored (CUSTOM palette, cmds 80, 81) | MRC | 0 DISPLAY |
 | 1 | 1 | STYLE | 0 | 0 FLAT, 1 LINE | FLAT | 0 DISPLAY |
 | 2 | 2 | LARGE | 0 | 0 OFF, 1 ON | OFF | 0 DISPLAY |
 | 3 | 3 | ANIM | 0 | 0 ON, 1 OFF, 2 IDLE (1.2: ON plus the LEDs' idle animation; firmware before: max 1) | ON | 0 DISPLAY |
@@ -1107,12 +1115,12 @@ before MIDI IN the first 21, 1.2 the first 23, 1.3 / 1.4 the first 24, 1.5 / 1.5
 | 12 | 12 | CLICK | 0 | 0 OFF, 1 REC, 2 ON (1.1) | OFF | 2 AUDIO |
 | 13 | 13 | CLICK LEVEL | 0 | 0 LOW, 1 MID, 2 HIGH (1.1) | MID | 2 AUDIO |
 | 14 | 14 | COUNT-IN | 0 | 0 OFF, 1 "1 BAR", 2 "2 BARS" (1.1) | OFF | 2 AUDIO |
-| 15 | 15 | RESTORE LAST | 0 | 0 ON, 1 OFF (1.2) | ON | 4 SYSTEM (up to 1.2's MIDI tab: 3) |
+| 15 | 15 | RESTORE LAST: retired by MRC (the autosave is always on), not listed, a SET of it refused | | | | |
 | 16 | 16 | SCALE LEDS | 0 | 0 OFF, 1 ON (1.2) | OFF | 1 CONTROL |
 | 17 | 17 | SCREEN OFF | 0 | 0 NEVER, 1 "5 MIN", 2 "15 MIN", 3 "30 MIN", 4 "60 MIN" (1.1.5) | NEVER (1.1.5.1; 1.1.5: 30 MIN) | 0 DISPLAY |
 | 18 | 18 | SCOPE | 0 | 0 OUT, 1 MIX (1.2) | OUT | 0 DISPLAY |
 | 19 | 19 | STEP PREVIEW | 0 | 0 OFF, 1 ON (1.2) | OFF | 1 CONTROL |
-| 20 | 20 | CHORD ENTRY | 0 | 0 HOLD, 1 ADD (1.2) | HOLD | 1 CONTROL |
+| 20 | 20 | QUANTIZE | 0 | 0 OFF, 1 ON (MRC: the selected track's `P_SQNT`, kept with the project, rc 0; id 20 was CHORD ENTRY, retired) | ON | 1 CONTROL |
 | 21 | 21 | MIDI IN | 0 | 0 CH1-4, 1 SEL, 2 CH5-8, 3 CH9-12, 4 CH13-16 (1.2: the project's `G_ROUTE`, global 14), 5 TRACK (1.5.5) | CH1-4 | 3 MIDI |
 | 22 | 22 | TUNE | 1 | -50..50, unit "ct" (1.2: the project's `G_TUNE`, global 3, cents) | 0 | 2 AUDIO |
 | 23 | 23 | HOME | 0 | 0 SCOPE, 1 TRACKS (1.3), 2 LEVELS (1.5; before: max 1) | SCOPE | 0 DISPLAY |
@@ -1153,14 +1161,13 @@ SCOPE (id 18, 1.2, Discussion #165; DISPLAY now shows COLOR, STYLE, LARGE, ANIM,
 the volume; MIX the mix before MASTER (and before the FX layer, SPEAKER EQ and the limiter), drawn at the size MASTER
 at its top would give, whatever the knob. The metronome's click is in neither. Applied at once.
 
-STEP PREVIEW (id 19, 1.2, Discussion #169) and CHORD ENTRY (id 20, 1.2, #155; CONTROL now shows HOLD, KNOB ACCEL, FX
-LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW and CHORD ENTRY, index 5..8, 16, 19, 20). STEP PREVIEW ON: on SEQ > STEP
+STEP PREVIEW (id 19, 1.2, Discussion #169) and QUANTIZE (id 20, MRC; was CHORD ENTRY, #155, retired; CONTROL now shows HOLD,
+KNOB ACCEL, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW and QUANTIZE, index 5..8, 16, 19, 20). STEP PREVIEW ON: on SEQ > STEP
 (the piano roll and the DRUM grid) with the transport stopped, moving the cursor with KNOB 1 or PRESETS (or the
 grid's page keys) plays the step it lands on once on the selected track, through its sound (a 1/16 at the track's
-GATE); never while playing, and it never writes. CHORD ENTRY ADD: in step recording (STEP, stopped, the track armed)
-each key adds its notes to the cursor step (up to 4) or takes them out when its note is there already, and letting
-go does not move the cursor (KNOB 1 / PRESETS move it); HOLD (the default) is the keys held together writing the step
-and moving on, as before. The editor's own step editing (`STEP_SET`) is not affected by either. Applied at once.
+GATE); never while playing, and it never writes. QUANTIZE: the selected track's `P_SQNT`; ON (the default) plays every step on
+its start, OFF plays the steps' NUDGEs (early or late). The keys held together write the step and move on (the "keys add
+to the step" mode of CHORD ENTRY is gone). The editor's own step editing (`STEP_SET`) is not affected. Applied at once.
 
 MIDI IN (id 21, 1.2; the MIDI tab, its only row) and TUNE (id 22, 1.2; AUDIO's last row): the project's MIDI IN
 routing and tuning, edited up to 1.1.5 on GLO > SYSTEM (ROUT) and GLO > GLOBAL (TUNE), the same values as globals 14

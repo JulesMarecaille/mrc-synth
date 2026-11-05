@@ -188,7 +188,8 @@ static void perf_press(uint32_t e, int down)
 {
     if (e >= PF_N)
         return;
-    if (perf_latch_on) {                  /* FX LATCH: a press turns it on or off, letting go does nothing */
+    if (perf_latch_on || e >= PF_M1) {    /* FX LATCH: a press turns it on or off, letting go does nothing (MRC: the
+                                           * track mutes of the black keys always, as GLO's: FX LATCH or not) */
         if (down) {
             perf_latched ^= PF_BIT(e);
             perf_ord[e] = ++perf_seq;

@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VOICE Singer</title>
+<style>
+  :root { --bg:#141414; --surf:#1e1e1e; --text:#e4dcc8; --mid:#a6a092; --dim:#6e6a5f; --line:#3d3b36; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace, Consolas, monospace; }
+  main { max-width:900px; margin:0 auto; padding:16px; }
+  h1 { font-size:15px; letter-spacing:.08em; margin:0 0 4px; }
+  p.note { color:var(--mid); margin:0 0 14px; }
+  .screen { background:var(--surf); display:inline-block; border:1px solid var(--line); border-radius:4px; overflow:hidden; max-width:100%; }
+  canvas { display:block; image-rendering:pixelated; max-width:100%; height:auto; }
+  .bar { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:12px 0; color:var(--mid); }
+  .bar button, .bar select { background:var(--surf); color:var(--text); border:1px solid var(--line); border-radius:3px; padding:4px 10px; font:inherit; cursor:pointer; }
+  .bar button.on { border-color:#F3BA5A; color:#F3BA5A; }
+  .pages { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
+  fieldset { border:1px solid var(--line); border-radius:4px; padding:8px 12px 10px; margin:0; }
+  legend { color:var(--mid); padding:0 6px; }
+  .k { display:grid; grid-template-columns:48px 1fr 64px; gap:8px; align-items:center; margin:4px 0; }
+  .k b { font-weight:600; }
+  .k span { text-align:right; color:var(--mid); }
+  input[type=range] { width:100%; }
+  .keys { position:relative; height:84px; margin:12px 0; user-select:none; touch-action:none; max-width:100%; overflow:hidden; }
+  .keys div { position:absolute; top:0; border:1px solid var(--line); border-radius:0 0 3px 3px; box-sizing:border-box; }
+  .keys .w { background:#d8d0bc; height:84px; width:34px; }
+  .keys .b { background:#2a2926; height:52px; width:22px; z-index:1; }
+  .keys .down { background:#F79B7A !important; }
+  .keys small { position:absolute; bottom:3px; width:100%; text-align:center; color:#555; font-size:10px; }
+  .keys .b small { color:#888; }
+  ul { color:var(--mid); padding-left:18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>VOICE · EDIT drawing prototype</h1>
+  <p class="note">The 240 × 140 panel at device resolution. A singer on the left, a speech bubble on the right; play notes with the keys below or the computer keyboard (A W S E D F T G Y H U J K, Z / X octave).</p>
+  <div class="screen"><canvas id="cv" width="240" height="140"></canvas></div>
+  <div class="bar">
+    <button id="snd">Sound: off</button>
+    <label>Bubble <select id="mode"><option value="wave">Waveform</option><option value="spec">Spectrum</option><option value="word" selected>Lettering</option></select></label>
+    <label>Preset <select id="pre"></select></label>
+    <label>Zoom <select id="zoom"><option>2</option><option selected>3</option><option>4</option></select></label>
+    <label>Palette <select id="pal"><option value="mrc">MRC (accent per knob)</option><option value="mono">Other palette (one colour)</option></select></label>
+    <button id="demo">Demo phrase</button>
+  </div>
+  <div class="keys" id="keys"></div>
+  <div class="pages">
+    <fieldset><legend>EDIT 1 · VOWL</legend><div id="p1"></div></fieldset>
+    <fieldset><legend>EDIT 2 · TONE</legend><div id="p2"></div></fieldset>
+    <fieldset><legend>AMP (to test the mouth) · OCT · VEL</legend><div id="p3"></div></fieldset>
+  </div>
+  <ul>
+    <li><b>VOWL / VOWL2</b>: the mouth's shape, the engine's A E I O U, continuous between them: A tall and open, E wide, I a spread smile with teeth, O round, U a small pucker.</li>
+    <li><b>TALK</b>: after a note-on the mouth moves from VOWL to VOWL2 over this time, eased out as the engine does (fast, then settling).</li>
+    <li><b>SHIFT</b>: the formants' shift is the singer's size: down a bigger head and a stern, low brow; up a smaller head, the brows lifted.</li>
+    <li><b>BUZZ</b> (+ velocity, as the engine takes it): the eyes, half-lidded and mellow at 0, wide awake at 127; past the middle the bubble grows spikes, the comic shout.</li>
+    <li><b>BRTH</b>: the bubble's outline breaks into dashes (the comic whisper), and the content fades as the voicing does.</li>
+    <li><b>Q</b>: the bubble's content: the formants' ringing in the waveform, the peaks' width in the spectrum, the letters' weight in the lettering.</li>
+    <li><b>RAND</b>: each note glances somewhere new, and its vowels lean towards the note's random vowel, as the engine's.</li>
+    <li>The envelope opens the mouth (and drops the jaw), the note's pitch lifts the brows, the singer blinks now and then behind the glasses, the tiny hat hops on each note. The face follows the last note played.</li>
+  </ul>
+</main>
+
+<script id="dsp" type="text/plain">
+/* eng_formant.c in float: the same tables, the same mappings */
+const VF = [[768, 1333, 2522], [580, 1799, 2605], [342, 2322, 3000], [497, 910, 2459], [378, 997, 2343]];
+const VB = [[90, 100, 160], [70, 100, 170], [50, 120, 200], [70, 80, 150], [60, 80, 150]];
+const clampf = (x, a, b) => x < a ? a : x > b ? b : x;
+function vowelAt(pos) {
+  let x = clampf(pos, 0, 127) * 4 / 127, i = Math.floor(x), fr = x - i;
+  if (i >= 4) { i = 3; fr = 1; }
+  const f = [], b = [];
+  for (let j = 0; j < 3; j++) {
+    f[j] = VF[i][j] + (VF[i + 1][j] - VF[i][j]) * fr;
+    b[j] = VB[i][j] + (VB[i + 1][j] - VB[i][j]) * fr;
+  }
+  return { f, b };
+}
+/* TALK: progress 0..1 over the TALK time, eased out (k (2 - k)); 0 = off */
+function talkK(talk, t) {
+  if (!talk) return 0;
+  const g = Math.min(1, t / (0.004 * Math.pow(2, talk / 14)));
+  return g * (2 - g);
+}
+/* the amp envelope, A D S R 0..127 */
+const envT = v => 0.001 * Math.pow(2, v / 11);
+function envAt(e, t, tOff) {
+  const A = envT(e[0]), D = envT(e[1]), S = e[2] / 127, R = envT(e[3]);
+  const held = u => u < A ? u / A : S + (1 - S) * Math.exp(-(u - A) * 4 / D);
+  if (tOff == null || t < tOff) return held(t);
+  return held(tOff) * Math.exp(-(t - tOff) * 5 / R);
+}
+/* p = VOWL VOWL2 TALK SHIFT BUZZ BRTH Q RAND; rv the note's random vowel; k TALK's progress */
+function voiceSetup(p, note, vel, rv, k) {
+  const r = p[7] / 127, v0 = p[0] + (rv - p[0]) * r, v1 = p[1] + (rv - p[1]) * r;
+  const A = vowelAt(v0), B = vowelAt(v1);
+  const ratio = Math.pow(2, (p[3] + 0.2362 * (note - 60)) / 12);   /* SHIFT + FOLOW 30 / 127 */
+  const bws = Math.pow(2, (64 - p[6]) / 48);                      /* Q: bandwidth x2.5 .. x0.4 */
+  const f0 = 440 * Math.pow(2, (note - 69) / 12), F = [], BW = [];
+  for (let j = 0; j < 3; j++) {
+    let f = (A.f[j] + (B.f[j] - A.f[j]) * k) * ratio, b = (A.b[j] + (B.b[j] - A.b[j]) * k) * ratio * bws;
+    if (j == 0 && f < f0 * 1.0625) { b *= f0 * 1.0625 / f; f = f0 * 1.0625; }   /* F1 follows F0 */
+    F[j] = clampf(f, 60, 7000); BW[j] = clampf(b, 20, 1500);
+  }
+  F[3] = clampf(3300 * ratio, 60, 7000); BW[3] = clampf(250 * ratio * bws, 20, 1500);
+  const buzz = clampf(p[4] + (vel - 96) * 40 / 256, 0, 127);
+  return {
+    F, BW, f0, v0, v1, buzz,
+    oq: 0.9 - 0.55 * buzz / 127, tilt: (2500 + buzz * 109) / 16384,
+    gv: 1 - p[5] * p[5] * 2 / 32767, gn: p[5] * 258 / 32768, kp: 1 + 3.9 * buzz / 127,
+  };
+}
+function resCoef(F, BW, sr) {
+  const c = -Math.exp(-2 * Math.PI * BW / sr), b = 2 * Math.exp(-Math.PI * BW / sr) * Math.cos(2 * Math.PI * F / sr);
+  return [1 - b - c, b, c];
+}
+class FVoice {
+  constructor(sr) { this.sr = sr; this.ph = 0; this.y = new Float64Array(8); this.lp = 0; this.nz = 0x2545F491; }
+  render(s, out, n) {
+    const sr = this.sr, R = [0, 1, 2, 3].map(j => resCoef(s.F[j], s.BW[j], sr)), y = this.y;
+    const inc = s.f0 / sr, te = s.oq, tp = 0.65 * te;
+    let ph = this.ph, lp = this.lp, nz = this.nz;
+    for (let i = 0; i < n; i++) {
+      let e = ph < tp ? Math.sin(Math.PI * ph / tp) * 0.538 : ph < te ? -Math.sin(Math.PI / 2 * (ph - tp) / (te - tp)) : 0;
+      lp += (e - lp) * s.tilt;
+      let x = lp * s.gv;
+      if (s.gn) {
+        nz ^= nz << 13; nz ^= nz >>> 17; nz ^= nz << 5;
+        const w = ((nz >>> 0) / 4294967296 * 2 - 1) * s.gn;
+        x += ph < te ? w : w / 2;                    /* aspiration follows the glottal opening */
+      }
+      for (let j = 0; j < 4; j++) {
+        const a = R[j][0] * x + R[j][1] * y[2 * j] + R[j][2] * y[2 * j + 1];
+        y[2 * j + 1] = y[2 * j]; y[2 * j] = a; x = a;
+      }
+      out[i] = y[6] + s.kp * (y[6] - y[7]);           /* PRES: a first-difference shelf */
+      ph += inc; if (ph >= 1) ph -= 1;
+    }
+    this.ph = ph; this.lp = lp; this.nz = nz;
+  }
+}
+</script>
+
+<script id="worklet" type="text/plain">
+class Singer extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.v = new FVoice(sampleRate); this.p = null; this.adsr = null; this.active = false; this.pk = 0;
+    this.port.onmessage = e => {
+      const m = e.data;
+      if (m.p) this.p = m.p;
+      if (m.adsr) this.adsr = m.adsr;
+      if (m.on) {
+        if (!this.active) { this.v.ph = 0; this.v.y.fill(0); this.v.lp = 0; }   /* from rest: no click */
+        Object.assign(this, { note: m.note, vel: m.vel, rv: m.rv, t: 0, tOff: null, active: true });
+      }
+      if (m.off) this.tOff = this.t;
+    };
+  }
+  process(_, outs) {
+    const o = outs[0][0];
+    if (!this.active || !this.p) { o.fill(0); return true; }
+    const s = voiceSetup(this.p, this.note, this.vel, this.rv, talkK(this.p[2], this.t));
+    this.v.render(s, o, o.length);
+    let last = 1;
+    for (let i = 0; i < o.length; i++) {
+      const a = Math.abs(o[i]);
+      this.pk = Math.max(a, this.pk * 0.99997);        /* a slow peak follower in place of the engine's gain staging */
+      last = envAt(this.adsr, this.t + i / sampleRate, this.tOff);
+      o[i] = Math.tanh(o[i] / (this.pk + 1e-9) * 0.9) * 0.28 * last;
+    }
+    this.t += o.length / sampleRate;
+    if (this.tOff != null && last < 1e-4) this.active = false;
+    for (let c = 1; c < outs[0].length; c++) outs[0][c].set(o);
+    return true;
+  }
+}
+registerProcessor("singer", Singer);
+</script>
+
+<script>
+const DSP = document.getElementById("dsp").textContent;
+const { vowelAt, talkK, envAt, voiceSetup, resCoef, FVoice, clampf } =
+  new Function(DSP + "; return { vowelAt, talkK, envAt, voiceSetup, resCoef, FVoice, clampf };")();
+
+/* the engine's edit table (eng_formant.c ENG_FORMANT); knob k takes accent k % 4 */
+const P = [
+  ["VOWL", 0, 127, 0], ["VOWL2", 0, 127, 64], ["TALK", 0, 127, 0], ["SHIFT", -12, 12, 0],
+  ["BUZZ", 0, 127, 64], ["BRTH", 0, 127, 10], ["Q", 0, 127, 64], ["RAND", 0, 127, 0],
+];
+const AMP = [["ATK", 0, 127, 20], ["DEC", 0, 127, 70], ["SUS", 0, 127, 100], ["REL", 0, 127, 70], ["OCT", 2, 6, 4], ["VEL", 1, 127, 100]];
+const PRESETS = [
+  ["CHOIR AAH", [0, 0, 0, 0, 40, 22, 60, 0], [85, 90, 115, 95]],
+  ["VOX LEAD", [32, 0, 0, 2, 90, 8, 72, 0], [6, 70, 105, 55]],
+  ["WOW BASS", [95, 0, 68, 0, 100, 0, 80, 0], [0, 70, 70, 30]],
+  ["WHISPER", [0, 95, 88, 3, 50, 120, 50, 0], [50, 90, 110, 90]],
+];
+const ACC = ["#FBE8A6", "#F3BA5A", "#F79B7A", "#EB5560"];      /* mrc_theme.h MRC_ACCENT */
+const SURF = [30, 30, 30], MID = "#A6A092", DIM = "#6E6A5F", TEXT = "#E4DCC8", MONO_C = "#3DDC97";
+const v = P.map(p => p[3]), amp = AMP.map(p => p[3]);
+let mono = false, mode = "word";
+
+const cv = document.getElementById("cv"), g = cv.getContext("2d");
+function hash(n) {
+  n = Math.imul(n >>> 0, 2654435761) >>> 0;
+  n = (n ^ (n >>> 13)) >>> 0;
+  n = Math.imul(n, 0x5BD1E995) >>> 0;
+  return n >>> 24;
+}
+function hex(c) { return [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16)); }
+function mix(c, pct) {                               /* gfx.c ux_mix: SURF blended to c, pct % */
+  const b = hex(c);
+  pct = clampf(pct, 0, 100);
+  return "rgb(" + b.map((x, i) => Math.round(SURF[i] + (x - SURF[i]) * pct / 100)).join(",") + ")";
+}
+function acc(k) { return mono ? MONO_C : ACC[k % 4]; }
+function path(pts, c, closed = false, w = 1.25) {
+  g.strokeStyle = c; g.lineWidth = w; g.beginPath();
+  pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+  if (closed) g.closePath();
+  g.stroke();
+}
+function ell(cx, cy, rx, ry, a0 = 0, a1 = 2 * Math.PI, n = 40) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; pts.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]); }
+  return pts;
+}
+
+/* ---- the note being shown (the last played) ---- */
+let cur = null;            /* { note, vel, rv, t0, tOff } */
+const held = new Map();    /* key -> note */
+const now = () => performance.now() / 1000;
+function state(t) {
+  if (!cur) return null;
+  const tt = t - cur.t0, toff = cur.tOff == null ? null : cur.tOff - cur.t0;
+  const a = envAt(amp, tt, toff);
+  return { tt, a, k: talkK(v[2], tt), s: voiceSetup(v, cur.note, cur.vel, cur.rv, talkK(v[2], tt)) };
+}
+
+/* ---- the mouth: A E I O U, w h p (roundness exponent) smile teeth tongue ---- */
+const MOUTH = [[20, 16, 2.4, 0, 0, 1], [22, 10, 3, 2, 1, 0], [24, 4, 4, 3.5, 1, 0], [13, 13, 2, 0, 0, 0], [8, 7, 2, -0.5, 0, 0]];
+function mouthAt(pos) {
+  let x = clampf(pos, 0, 127) * 4 / 127, i = Math.floor(x), fr = x - i;
+  if (i >= 4) { i = 3; fr = 1; }
+  return MOUTH[i].map((m, j) => m + (MOUTH[i + 1][j] - m) * fr);
+}
+
+/* blinking: one every ~3.7 s, 130 ms */
+const blinkAt = t => { const ph = (t % 3.7); return ph < 0.13 ? Math.abs(ph / 0.065 - 1) : 1; };
+
+function draw() {
+  const t = now();
+  const st = state(t), a = st ? st.a : 0, live = a > 0.004;
+  g.fillStyle = "rgb(30,30,30)"; g.fillRect(0, 0, 240, 140);
+  g.lineCap = "round"; g.lineJoin = "round"; g.setLineDash([]);
+
+  /* SHIFT: the singer's size */
+  const sc = 1 - v[3] * 0.011, FX = 62, FY = 76;
+  const buzz = st ? st.s.buzz : v[4];
+  /* the mouth's vowel: VOWL -> VOWL2 by TALK, leaning to the note's random vowel by RAND */
+  let m;
+  if (st) m = mouthAt(st.s.v0).map((x, j) => x + (mouthAt(st.s.v1)[j] - x) * st.k);
+  else m = mouthAt(v[0]);
+  const open = Math.pow(a, 0.6);
+  const mw = m[0] * sc * (0.85 + 0.15 * open), mh = Math.max(0.6, m[1] * sc * open);
+  const MX = FX + 8, MY = FY + 20 * sc;
+  const jaw = mh * 0.35;
+
+  /* the head: the jaw drops with the mouth */
+  const hx = 38 * sc, hyT = 42 * sc, hyB = 44 * sc + jaw;
+  path(ell(FX, FY, hx, hyT, Math.PI, 2 * Math.PI, 40), TEXT);
+  path(ell(FX, FY, hx, hyB, 0, Math.PI, 40), TEXT);
+  /* an ear on the far side */
+  path(ell(FX - hx + 1, FY + 2 * sc, 5 * sc, 8 * sc, Math.PI * 0.5, Math.PI * 1.5, 16), TEXT);
+  /* a tiny top hat, tipped to the right; it hops on a note-on */
+  {
+    const hop = cur ? Math.max(0, Math.sin(Math.min(1, (t - cur.t0) / 0.22) * Math.PI)) * 3 : 0;
+    const ang = 0.18, ca = Math.cos(ang), sa = Math.sin(ang), ox = FX + 5, oy = FY - hyT + 1.5 - hop;
+    const hs = 1.2 * sc, tf = pts => pts.map(([x, y]) => [ox + (x * ca - y * sa) * hs, oy + (x * sa + y * ca) * hs]);
+    g.fillStyle = "rgb(30,30,30)"; g.beginPath();
+    tf([[-7, -1], [-6, -13], [6, -13], [7, -1]]).forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+    g.fill();
+    path(tf([[-7, -1], [-6, -13], [6, -13], [7, -1]]), acc(3), true);     /* the crown */
+    path(tf([[-12, 0], [12, 0]]), acc(3), false, 1.5);                     /* the brim */
+    path(tf([[-6.6, -4], [6.6, -4]]), mix(acc(3), 55), false, 1.5);        /* the band */
+  }
+
+  /* the eyes: BUZZ opens them, a blink now and then; RAND sends the glance somewhere new each note */
+  const op = (0.28 + 0.72 * buzz / 127) * blinkAt(t);
+  let gx = 1.3, gy = -0.4;
+  if (cur && v[7]) {
+    const ang = hash(cur.rv * 7 + cur.note) / 255 * 2 * Math.PI, r = v[7] / 127;
+    gx = gx * (1 - r) + 1.8 * Math.cos(ang) * r; gy = gy * (1 - r) + 1.4 * Math.sin(ang) * r;
+  }
+  const lift = clampf(v[3] * 0.22 + (cur ? (cur.note - 60) * 0.1 : 0), -2.5, 4);
+  for (const side of [-1, 1]) {
+    const ex = FX + 7 + side * 13 * sc, ey = FY - 7 * sc, ew = 6 * sc;
+    const up = 4.5 * sc * op, dn = 2.2 * sc;
+    if (op < 0.14) path([[ex - ew, ey], [ex, ey + 1], [ex + ew, ey]], TEXT);
+    else {
+      const top = [], bot = [];
+      for (let i = 0; i <= 12; i++) {
+        const u = -1 + 2 * i / 12, f = 1 - u * u;
+        top.push([ex + u * ew, ey - up * f]); bot.push([ex + u * ew, ey + dn * f]);
+      }
+      g.save(); g.beginPath();
+      top.concat(bot.slice().reverse()).forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+      g.closePath(); g.clip();
+      g.fillStyle = acc(1); g.beginPath(); g.arc(ex + gx * sc, ey + gy * sc - up * 0.15, 2.3 * sc, 0, 2 * Math.PI); g.fill();
+      g.restore();
+      path(top, TEXT); path(bot, mix(TEXT, 55));
+    }
+    /* the brows: SHIFT up lifts their inner ends (surprised), down lowers them (stern); the pitch lifts them */
+    const by = ey - 11 * sc - lift, tilt = v[3] * 0.18;
+    const inner = [ex - side * ew, by - tilt], outer = [ex + side * ew, by + tilt * 0.3];
+    path([inner, [ex, by - 1.6 - tilt * 0.3], outer], acc(1), false, 1.5);
+  }
+  /* the glasses: two rounded lenses, a bridge, an arm back to the ear */
+  {
+    const ey = FY - 7 * sc + 0.5, lw = 9 * sc, lh = 6.5 * sc;
+    for (const side of [-1, 1]) {
+      const cx = FX + 7 + side * 13 * sc, pts = [];
+      for (let i = 0; i <= 32; i++) {
+        const a = i / 32 * 2 * Math.PI, c = Math.cos(a), s = Math.sin(a);
+        pts.push([cx + lw * Math.sign(c) * Math.pow(Math.abs(c), 0.6), ey + lh * Math.sign(s) * Math.pow(Math.abs(s), 0.6)]);
+      }
+      path(pts, acc(2), true);
+    }
+    path([[FX + 7 - 13 * sc + lw, ey - 1], [FX + 7, ey - 2.5 * sc], [FX + 7 + 13 * sc - lw, ey - 1]], acc(2));
+    path([[FX + 7 - 13 * sc - lw, ey - 1], [FX - hx + 3, ey - 2]], acc(2));
+    path([[FX + 7 + 13 * sc + lw, ey - 1], [FX + hx - 1.5, ey - 2]], acc(2));
+  }
+  /* the nose */
+  path([[FX + 9, FY - 1], [FX + 12, FY + 7 * sc], [FX + 8, FY + 8 * sc]], MID);
+
+  /* the mouth */
+  const [_, __, mp, smile, teeth, tongue] = m;
+  const up = [], lo = [];
+  for (let i = 0; i <= 20; i++) {
+    const u = -1 + 2 * i / 20, f = Math.pow(1 - Math.pow(Math.abs(u), mp), 1 / mp), l = smile * sc * u * u * (0.5 + 0.5 * open);
+    up.push([MX + u * mw / 2, MY - mh * 0.35 * f - l]);
+    lo.push([MX + u * mw / 2, MY + mh * 0.65 * f - l]);
+  }
+  if (mh > 1.2) {
+    g.fillStyle = "rgb(12,12,12)"; g.beginPath();
+    up.concat(lo.slice().reverse()).forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+    g.closePath(); g.fill();
+    g.save(); g.clip();
+    if (teeth > 0.3 && mh > 2.5) path([[MX - mw * 0.35, MY - mh * 0.35 + 1.4], [MX + mw * 0.35, MY - mh * 0.35 + 1.4]], mix(TEXT, 70 * teeth), false, 1.6);
+    if (tongue > 0.3 && mh > 6) path(ell(MX + 1, MY + mh * 0.65, mw * 0.28, mh * 0.3, Math.PI, 2 * Math.PI, 12), mix(acc(0), 55 * tongue));
+    g.restore();
+    path(up.concat(lo.slice().reverse()), acc(0), true, 1.4);
+  } else path(up, acc(0), false, 1.4);
+
+  drawBubble(t, st, a, live, buzz, MX + mw / 2 + 9, MY - 3);
+}
+
+/* ---- the bubble ---- */
+function drawBubble(t, st, a, live, buzz, tipX, tipY) {
+  const BX = 175, BY = 58;
+  /* a note pops it in, the envelope breathes it */
+  let pop = 1;
+  if (cur) { const u = t - cur.t0; if (u < 0.18) pop = 0.75 + 0.25 * (1 - Math.cos(u / 0.18 * Math.PI)) / 2 + Math.sin(u / 0.18 * Math.PI) * 0.12; }
+  const rx = 56 * pop * (0.94 + 0.06 * a), ry = 40 * pop * (0.94 + 0.06 * a);
+  /* BUZZ past the middle: spikes, the comic shout; velocity sharpens them */
+  const sp = clampf((buzz - 50) / 77, 0, 1) * 0.24 * (live ? 1 : 0.5);
+  const N = 15, pts = [];
+  const tA = Math.atan2((tipY - BY) / ry, (tipX - BX) / rx), half = 0.16;
+  let tailDone = false;
+  for (let i = 0; i <= 150; i++) {
+    const th = tA + half + (2 * Math.PI - 2 * half) * i / 150;
+    const w = (th - tA) * N / (2 * Math.PI), seg = Math.floor(w), fr = w - seg;
+    const tri = 1 - Math.abs(fr - 0.5) * 2, hv = 0.65 + hash(seg * 3 + 11) / 255 * 0.7;
+    const r = 1 + sp * hv * (Math.pow(tri, 2.2) - 0.35);
+    pts.push([BX + rx * r * Math.cos(th), BY + ry * r * Math.sin(th)]);
+  }
+  pts.push([tipX, tipY]);
+  /* BRTH: the outline breaks into dashes, the comic whisper */
+  const br = v[5] / 127;
+  if (br > 0.06) g.setLineDash([Math.max(1, 5 - br * 3.5), 0.5 + br * 3.5]);
+  path(pts, mix(acc(0), live ? 60 + 40 * a : 45), true, 1.3);
+  g.setLineDash([]);
+
+  /* the content, inside the bubble */
+  g.save();
+  g.beginPath(); g.ellipse(BX, BY, rx * 0.86, ry * 0.8, 0, 0, 2 * Math.PI); g.clip();
+  const voiced = st ? 0.25 + 0.75 * clampf(st.s.gv, 0, 1) : 1;
+  if (!live) {
+    for (let i = -1; i <= 1; i++) { g.fillStyle = mix(MID, 70); g.fillRect(BX + i * 8 - 1, BY - 1, 2, 2); }
+  } else if (mode == "wave") drawWave(BX, BY, rx, ry, st, a, voiced);
+  else if (mode == "spec") drawSpec(BX, BY, rx, ry, st, a, voiced);
+  else drawWord(BX, BY, rx, ry, st, a, voiced, buzz, t);
+  g.restore();
+}
+
+/* WAVE: two periods of the engine's output, synthesised here; Q's ringing shows */
+const wv = new FVoice(44100), wbuf = new Float32Array(44100);
+function drawWave(BX, BY, rx, ry, st, a, voiced) {
+  const per = 44100 / st.s.f0, n = Math.round(per * 5);
+  wv.ph = 0; wv.y.fill(0); wv.lp = 0;
+  wv.render(st.s, wbuf, n);
+  const s0 = Math.round(per * 3), m = Math.round(per * 2);
+  let pk = 1e-9;
+  for (let i = 0; i < m; i++) pk = Math.max(pk, Math.abs(wbuf[s0 + i]));
+  const W = rx * 1.55, H = ry * 0.62 * Math.max(0.12, a), pts = [];
+  for (let x = 0; x <= W; x += 0.5) pts.push([BX - W / 2 + x, BY - wbuf[s0 + Math.min(m - 1, Math.round(x / W * m))] / pk * H]);
+  path(pts, mix(acc(2), 100 * voiced), false, 1.2);
+}
+
+/* SPECTRUM: the harmonics (F0's comb) under the formants' envelope; Q narrows the peaks */
+function respDb(s, f) {
+  const sr = 44100, w = 2 * Math.PI * f / sr, cw = Math.cos(w), sw = Math.sin(w), c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+  let mag = 1;
+  for (let j = 0; j < 4; j++) {
+    const [A, B, C] = resCoef(s.F[j], s.BW[j], sr);
+    const re = 1 - B * cw - C * c2, im = B * sw + C * s2;
+    mag *= Math.abs(A) / Math.hypot(re, im);
+  }
+  mag *= Math.hypot(1 + s.kp * (1 - cw), s.kp * sw) * s.tilt / Math.hypot(1 - (1 - s.tilt) * cw, (1 - s.tilt) * sw);
+  return 20 * Math.log10(mag + 1e-12);
+}
+function drawSpec(BX, BY, rx, ry, st, a, voiced) {
+  const s = st.s, W = rx * 1.6, H = ry * 1.2, x0 = BX - W / 2, base = BY + H / 2;
+  const fx = f => x0 + Math.log(f / 90) / Math.log(5500 / 90) * W;
+  let top = -1e9;
+  for (let f = 90; f < 5500; f *= 1.03) top = Math.max(top, respDb(s, f));
+  const fy = db => base - clampf((db - top + 42) / 42, 0, 1) * H * Math.max(0.15, a);
+  const env = [];
+  for (let f = 90; f < 5500; f *= 1.02) env.push([fx(f), fy(respDb(s, f))]);
+  g.setLineDash([1, 2]); path(env, mix(acc(0), 70), false, 1); g.setLineDash([]);
+  for (let h = 1; h * s.f0 < 5500; h++) {
+    const f = h * s.f0, db = respDb(s, f) - 8 * Math.log2(h) * (1 - s.buzz / 160);
+    path([[fx(f), base], [fx(f), Math.min(base, fy(db))]], mix(acc(2), 100 * voiced), false, 1.2);
+  }
+  /* BRTH: the noise floor */
+  if (s.gn > 0.02) path([[x0, base - s.gn * H * 0.35 * a], [x0 + W, base - s.gn * H * 0.25 * a]], mix(acc(1), 70), false, 1);
+}
+
+/* LETTERING: the vowel sung, a letter each 110 ms while held, the latest the biggest; BUZZ shakes them, Q is their weight */
+function drawWord(BX, BY, rx, ry, st, a, voiced, buzz, t) {
+  const held = cur.tOff == null ? st.tt : cur.tOff - cur.t0, n = 1 + Math.floor(held / 0.11);
+  let s = "";
+  for (let i = 0; i < n; i++) {
+    const k = talkK(v[2], i * 0.11), pos = st.s.v0 + (st.s.v1 - st.s.v0) * k;
+    s += "AEIOU"[Math.round(clampf(pos, 0, 127) * 4 / 127)];
+  }
+  if (buzz > 95) s += "!";
+  s = s.slice(-8);
+  const shake = clampf((buzz - 60) / 67, 0, 1) * 1.6, sz = Math.round(13 + a * 6), wt = v[6] > 85 ? 900 : v[6] > 40 ? 700 : 400;
+  g.font = `${wt} ${sz}px "Comic Sans MS", "Trebuchet MS", sans-serif`;
+  g.textBaseline = "middle";
+  const ws = [...s].map(c => g.measureText(c).width * 0.92), W = ws.reduce((x, y) => x + y, 0);
+  let x = BX - W / 2;
+  [...s].forEach((c, i) => {
+    const age = s.length - 1 - i, j = shake * (hash(i * 13 + Math.floor(t * 20)) / 128 - 1);
+    g.fillStyle = mix(acc(2), (100 - age * 7) * voiced);
+    g.save(); g.translate(x + j, BY + 1 - j + Math.sin(i * 0.9 + t * 3) * 0.6); g.scale(1 - age * 0.04, 1 - age * 0.04);
+    g.fillText(c, 0, 0); g.restore();
+    x += ws[i];
+  });
+}
+
+/* ---- sound ---- */
+let ac = null, node = null;
+async function soundOn() {
+  ac = new AudioContext();
+  const src = DSP + "\n" + document.getElementById("worklet").textContent;
+  await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([src], { type: "application/javascript" })));
+  node = new AudioWorkletNode(ac, "singer", { outputChannelCount: [2] });
+  node.connect(ac.destination);
+  post();
+}
+const post = (m = {}) => node && node.port.postMessage(Object.assign({ p: v.slice(), adsr: amp.slice(0, 4) }, m));
+document.getElementById("snd").onclick = async e => {
+  if (!ac) await soundOn(); else if (ac.state == "running") await ac.suspend(); else await ac.resume();
+  const on = ac.state == "running";
+  e.target.textContent = "Sound: " + (on ? "on" : "off"); e.target.classList.toggle("on", on);
+};
+
+function noteOn(note) {
+  cur = { note, vel: amp[5], rv: Math.floor(Math.random() * 128), t0: now(), tOff: null };
+  post({ on: 1, note, vel: cur.vel, rv: cur.rv });
+  keyLit();
+}
+function noteOff(note) {
+  if (cur && cur.note == note && cur.tOff == null && ![...held.values()].includes(note)) { cur.tOff = now(); post({ off: 1 }); }
+  keyLit();
+}
+
+/* ---- the knobs ---- */
+function knobRow(i, table, vals, colour) {
+  const [l, mn, mx] = table[i];
+  const row = document.createElement("div");
+  row.className = "k";
+  row.innerHTML = `<b>${l}</b><input type="range" min="${mn}" max="${mx}" step="1"><span></span>`;
+  const r = row.querySelector("input"), s = row.querySelector("span"), b = row.querySelector("b");
+  const show = () => {
+    s.textContent = l == "SHIFT" ? (vals[i] > 0 ? "+" : "") + vals[i] + " st" : l.startsWith("VOWL") ? "AEIOU"[Math.round(vals[i] * 4 / 127)] + " " + vals[i] : ["OCT", "VEL"].includes(l) ? vals[i] : Math.round(vals[i] * 100 / 127) + " %";
+    b.style.color = colour ? colour() : MID; r.style.accentColor = colour ? colour() : MID;
+  };
+  r.value = vals[i];
+  r.oninput = () => { vals[i] = +r.value; show(); post(); };
+  row._sync = () => { r.value = vals[i]; show(); };
+  show();
+  return row;
+}
+const rows = P.map((_, i) => knobRow(i, P, v, () => acc(i)));
+rows.forEach((r, i) => document.getElementById(i < 4 ? "p1" : "p2").appendChild(r));
+const arows = AMP.map((_, i) => knobRow(i, AMP, amp));
+arows.forEach(r => document.getElementById("p3").appendChild(r));
+const sync = () => { rows.concat(arows).forEach(r => r._sync()); post(); buildKeys(); };
+
+const pre = document.getElementById("pre");
+pre.innerHTML = '<option value="">—</option>' + PRESETS.map((p, i) => `<option value="${i}">${p[0]}</option>`).join("");
+pre.onchange = () => { if (pre.value === "") return; const [, e, a] = PRESETS[+pre.value]; e.forEach((x, i) => v[i] = x); a.forEach((x, i) => amp[i] = x); sync(); };
+document.getElementById("mode").onchange = e => { mode = e.target.value; };
+document.getElementById("pal").onchange = e => { mono = e.target.value == "mono"; sync(); };
+const zoom = document.getElementById("zoom");
+const setZoom = () => { cv.style.width = 240 * zoom.value + "px"; };
+zoom.onchange = setZoom;
+
+/* ---- the keys: on screen and A W S E D F T G Y H U J K ---- */
+const KB = "awsedftgyhujk", keysEl = document.getElementById("keys");
+let keyEls = [];
+function buildKeys() {
+  keysEl.innerHTML = ""; keyEls = [];
+  const base = 12 * (amp[4] + 1);
+  let wx = 0;
+  for (let i = 0; i <= 12; i++) {
+    const black = [1, 3, 6, 8, 10].includes(i % 12), d = document.createElement("div");
+    d.className = black ? "b" : "w";
+    d.style.left = (black ? wx - 11 : wx) + "px";
+    if (!black) wx += 34;
+    d.innerHTML = `<small>${KB[i].toUpperCase()}</small>`;
+    const n = base + i;
+    d.onpointerdown = e => { d.setPointerCapture(e.pointerId); held.set("p" + e.pointerId, n); noteOn(n); };
+    d.onpointerup = d.onpointercancel = e => { held.delete("p" + e.pointerId); noteOff(n); };
+    keysEl.appendChild(d); keyEls.push([n, d]);
+  }
+  keysEl.style.width = wx + "px";
+}
+function keyLit() { keyEls.forEach(([n, d]) => d.classList.toggle("down", [...held.values()].includes(n))); }
+addEventListener("keydown", e => {
+  if (e.repeat || e.target.tagName == "SELECT") return;
+  const k = e.key.toLowerCase();
+  if (k == "z" || k == "x") { amp[4] = clampf(amp[4] + (k == "x" ? 1 : -1), 2, 6); sync(); return; }
+  const i = KB.indexOf(k);
+  if (i < 0) return;
+  const n = 12 * (amp[4] + 1) + i;
+  held.set(k, n); noteOn(n);
+});
+addEventListener("keyup", e => {
+  const k = e.key.toLowerCase();
+  if (!held.has(k)) return;
+  const n = held.get(k); held.delete(k); noteOff(n);
+});
+
+/* ---- a short phrase, on the current settings ---- */
+let demo = null;
+document.getElementById("demo").onclick = e => {
+  if (demo) { clearTimeout(demo); demo = null; e.target.textContent = "Demo phrase"; held.delete("demo"); if (cur) noteOff(cur.note); return; }
+  e.target.textContent = "Stop";
+  const PH = [[0, .45], [3, .3], [7, .3], [12, .9], [10, .3], [7, .3], [5, .6], [3, 1.2]];
+  let i = 0;
+  const step = () => {
+    const [d, len] = PH[i++ % PH.length], n = 12 * (amp[4] + 1) + d;
+    held.set("demo", n); noteOn(n);
+    demo = setTimeout(() => { held.delete("demo"); noteOff(n); demo = setTimeout(step, 90); }, len * 1000 - 90);
+  };
+  step();
+};
+
+buildKeys();
+setZoom();
+const tick = () => { draw(); requestAnimationFrame(tick); };
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

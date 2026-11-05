@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca UI: NAME, naming a user preset or a project on the device (included by ui_input.c).
+/* Felucca UI: NAME, naming a user preset or a saved pattern on the device (included by ui_input.c).
  *
- * Where: SAVE > USER, SAVE (KNOB 4, OCT+) and SAVE > PROJECT, SAVE: after the OVERWRITE? dialog when the slot is
- * used, the NAME screen opens before anything is written; OCT+ writes, OCT- cancels (back to the page, nothing
- * written). EDIT on those pages renames the selected slot (only its name is written). The name is prefilled:
- * USER the sound's own (the user preset it came from) or the automatic one ("DIGITAL 14"), PROJECT the current
- * project's (as loaded or last saved; none: "PROJECT A"), so SAVE, OCT+, OCT+ saves with the default name.
+ * Where: SAVE > USER, SAVE (KNOB 4, OCT+) and SAVE > PATTERN, SAVE (MRC; upstream SAVE > PROJECT): after the OVERWRITE?
+ * dialog when the slot is used, the NAME screen opens before anything is written; OCT+ writes, OCT- cancels (back to
+ * the page, nothing written). EDIT on those pages renames the selected slot (only its name is written). The name is
+ * prefilled: USER the sound's own (the user preset it came from) or the automatic one ("DIGITAL 14"), PATTERN the
+ * slot's own, else the pattern the track's steps came from (none: "PATTERN 03"), so SAVE, OCT+, OCT+ saves with the
+ * default name.
  * Writing needs the transport stopped (STOP TO SAVE; the screen stays).
  *
  * The keys type and never sound, record or send MIDI (seq.c keyboard_block: song.grid 2). Upper case, at most 12:
@@ -20,11 +21,11 @@
  *   KNOB 3       (1.2, Discussion #90) USER: the sound's category (BASS LEAD PAD PLUCK KEYS DRUM FX OTHER, category.c),
  *                shown in the field's title row and written with the name (PRESETS > LIST filters by it); it starts at
  *                the slot's own (a rename) or the sound's (a save: its user preset's, its factory preset's).
- *                PROJECT: a random name, a new one each detent (an adjective and a noun, NM_RA / NM_RB; the field
+ *                PATTERN: a random name, a new one each detent (an adjective and a noun, NM_RA / NM_RB; the field
  *                takes it whole, then the keys edit it as any other).
  *   LEDs         every key that types or edits is lit; the key whose letters are being cycled blinks.
- * Spaces at either end are dropped when it is written; an empty name: USER the automatic one, PROJECT none. */
-enum { NK_NONE, NK_USER_SAVE, NK_USER_RENAME, NK_PROJ_SAVE, NK_PROJ_RENAME };
+ * Spaces at either end are dropped when it is written; an empty name: USER the automatic one, PATTERN "PATTERN 03". */
+enum { NK_NONE, NK_USER_SAVE, NK_USER_RENAME, NK_PAT_SAVE, NK_PAT_RENAME };
 #define NM_LEN 12u
 #define NM_TAP_MS 800u                                 /* multi-tap: the next letter within this */
 #define NM_REP_MS 450u                                 /* a held arrow / DELETE repeats after this, */
@@ -44,10 +45,10 @@ static struct {
     uint8_t rep;                                       /* the key (+ 1) of a held arrow / DELETE, 0 none */
     uint32_t t, rep_t;                                 /* fm1_ms of the last tap; of the next repeat */
     uint8_t cat;                                       /* USER: the category (CAT_BASS..CAT_OTHER) KNOB 3 sets */
-    uint32_t rnd;                                      /* PROJECT: KNOB 3's random names (xorshift; 0 = not seeded) */
+    uint32_t rnd;                                      /* PATTERN: KNOB 3's random names (xorshift; 0 = not seeded) */
     uint32_t sig;                                      /* drawn-state cache */
     char s[NM_LEN + 1u];
-    char ph[NM_LEN + 1u];                              /* what an empty name saves as / shows ("PROJECT A") */
+    char ph[NM_LEN + 1u];                              /* what an empty name saves as / shows ("PATTERN 03") */
 } nm __attribute__((section(".pool")));                /* (zero-initialised; main loop only: off the audio code's .bss) */
 
 static int name_on(void) { return nm.kind != NK_NONE; }
@@ -57,9 +58,9 @@ static void name_close(void)
         ui.force = 1;
     nm.kind = NK_NONE;
 }
-/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 3 = SONG's A..D (ui.c song_keys_on), 0 = notes (seq.c keyboard_block
- * reads song.grid) */
-static uint32_t keys_mode(void) { return name_on() ? 2u : grid_on() ? 1u : song_keys_on() ? 3u : 0u; }
+/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads song.grid; MRC: SONG's A..D,
+ * 3, are gone) */
+static uint32_t keys_mode(void) { return name_on() ? 2u : grid_on() ? 1u : 0u; }
 
 static const char *nm_group(uint32_t p)                /* white key place p's characters */
 {
@@ -98,30 +99,30 @@ static void name_open(uint32_t kind, uint32_t slot)
         else
             str_cpy(b, nm.ph, sizeof b);
         nm.cat = (uint8_t)(kind == NK_USER_RENAME ? up_cat(slot) : track_cat(TSEL));
-    } else {
-        str_cpy(nm.ph, "PROJECT A", sizeof nm.ph);
-        nm.ph[8] = (char)('A' + (slot & 3u));
-        if (kind == NK_PROJ_RENAME)
-            project_name(slot, b);
-        else
-            project_cur_name(b);
+    } else {                                           /* PATTERN: the slot's name, else the steps' pattern's */
+        uint32_t f = pat_from[song.sel % NTRK];
+        pat_default_name(nm.ph, slot);
+        if (pat_used(slot))
+            str_cpy(b, pat_info(slot)->name, sizeof b);
+        else if (f && pat_used(f - 1u))
+            str_cpy(b, pat_info(f - 1u)->name, sizeof b);
     }
     str_cpy(nm.s, b, sizeof nm.s);
     nm.len = nm.cur = (uint8_t)str_len(nm.s);
     ui.force = 1;
 }
 
-/* SAVE > USER / PROJECT, EDIT: rename the selected slot */
+/* SAVE > USER / PATTERN, EDIT: rename the selected slot */
 static void name_rename(void)
 {
     int user = cur_page()->graph == GR_USER;
-    uint32_t k = user ? ui.uslot : (uint32_t)song.g[G_SLOT] - 1u;
-    if (!(user ? up_used(k) : project_used(k)))
+    uint32_t k = user ? ui.uslot : ui.pslot;
+    if (!(user ? up_used(k) : pat_used(k)))
         ui_message("EMPTY SLOT");
     else if (transport_busy())
         ui_message("STOP TO SAVE");
     else
-        name_open(user ? NK_USER_RENAME : NK_PROJ_RENAME, k);
+        name_open(user ? NK_USER_RENAME : NK_PAT_RENAME, k);
 }
 
 static void nm_commit(void)                            /* the letter being cycled is kept: the cursor past it */
@@ -222,7 +223,7 @@ static void nm_knob(uint32_t k, int32_t s)             /* KNOB 1 the cursor, KNO
 {
     int32_t i, n = (int32_t)sizeof NM_SET - 1;
     nm_commit();
-    if (k == 2u) {                                     /* USER: the category (no wrap); PROJECT: a random name */
+    if (k == 2u) {                                     /* USER: the category (no wrap); PATTERN: a random name */
         if (nm.kind <= NK_USER_RENAME)
             nm.cat = (uint8_t)clamp((int32_t)nm.cat + s, CAT_BASS, CAT_OTHER);
         else
@@ -264,11 +265,11 @@ static void name_ok(void)
     case NK_USER_RENAME:
         up_ui_named(3, nm.slot, b, nm.cat);
         break;
-    case NK_PROJ_SAVE:
-        project_save_as(nm.slot, b);
+    case NK_PAT_SAVE:
+        pat_save_ui(nm.slot, b[0] ? b : nm.ph, 0);
         break;
     default:
-        project_rename(nm.slot, b);
+        pat_save_ui(nm.slot, b[0] ? b : nm.ph, 1);
         break;
     }
     name_close();
@@ -323,7 +324,7 @@ static uint32_t name_leds(void)
 }
 
 /* ----------------------------------------------------------- drawing --- */
-/* The header stays. The card band is the name field: a SURF card, "SAVE U07" / "NAME PROJECT A" and the length,
+/* The header stays. The card band is the name field: a SURF card, "SAVE U07" / "NAME P03" and the length,
  * then 12 cells (M): the cursor an ACCENT box, the letter being cycled a THEME cell (INK), a space a DIM dot, an
  * empty name its placeholder in DIM. The panel: the cycling key's letters (the one typed THEME, the next ACCENT)
  * or a hint, and ABC / 123; the white keys as two rows of 8 pills (the left octave, then the right one; the
@@ -332,11 +333,11 @@ static uint32_t name_leds(void)
 #define NM_CX(i) (12 + 18 * (int32_t)(i))              /* cell i: 18 x 22 at y 18 of the card */
 static void nm_title(char *b)
 {
-    str_cpy(b, nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE ? "SAVE " : "NAME ", 8);
+    str_cpy(b, nm.kind == NK_USER_SAVE || nm.kind == NK_PAT_SAVE ? "SAVE " : "NAME ", 8);
     if (nm.kind <= NK_USER_RENAME)
         up_slot_label(b + 5, nm.slot);
     else
-        str_cpy(b + 5, nm.ph, 12);                     /* "PROJECT A" */
+        pat_tag(b + 5, nm.slot);                       /* "SAVE P03" */
 }
 static void nm_draw_field(void)
 {
@@ -381,8 +382,8 @@ static void nm_draw_panel(void)
 {
     static const char *const FN[5] = {"F#", "G#", "A#", "C#", "D#"};
     uint32_t i;
-    cv_begin(240, H_GRAPH, T_BG);
-    cv_rrect(3, 0, 234, H_GRAPH, 5, T_SURF, T_BG);
+    cv_begin(240, OVL_H_GRAPH, T_BG);
+    cv_rrect(3, 0, 234, OVL_H_GRAPH, 5, T_SURF, T_BG);
     cv_bg = T_SURF;
     if (nm.key) {                                      /* the cycling key's characters: typed THEME, next ACCENT */
         const char *g = nm_group(nm.key - 1u);
@@ -432,16 +433,16 @@ static void nm_draw_foot(void)
 {
     khint_t a[3], b[3];
     int ok = !transport_busy();
-    a[0] = (khint_t){KC_OCTUP, nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE ? "SAVE" : "RENAME"};
+    a[0] = (khint_t){KC_OCTUP, nm.kind == NK_USER_SAVE || nm.kind == NK_PAT_SAVE ? "SAVE" : "RENAME"};
     a[1] = (khint_t){KC_OCTDN, "CANCEL"};
     a[2] = (khint_t){KC_K3, nm.kind <= NK_USER_RENAME ? "CATEGORY" : "RANDOM"};   /* (1.2: the category, a random name) */
     b[0] = (khint_t){KC_K1, "MOVE"};
     b[1] = (khint_t){KC_K2, "CHAR"};
     b[2] = (khint_t){KC_KEYS, "TYPE"};
-    cv_begin(240, H_FOOT, T_BG);
+    cv_begin(240, OVL_H_FOOT, T_BG);
     cv_key_row(8, 232, 2, a, 3, ok ? 7u : 6u, T_BG);
     cv_key_row(8, 232, 21, b, 3, 7u, T_BG);
-    cv_blit(0, Y_FOOT);
+    cv_blit(0, OVL_Y_FOOT);
 }
 static void name_draw(void)
 {
@@ -464,6 +465,8 @@ static void name_draw(void)
         ui.msg2[0] = 0;
         ui.msg_t = 60;
     }
+    if (ui.pre_t)
+        ui.pre_t--;
     if (ui.bpm_t)
         ui.bpm_t--;
     ui.force = 0;

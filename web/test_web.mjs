@@ -36,7 +36,7 @@ const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
-   UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
+   UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6, enumShown, F,
    FM4, fromDigital, fromPerc, DRUM_KIT_E,
    MENU: typeof MENU === "undefined" ? null : MENU, MENU_TABS: typeof MENU_TABS === "undefined" ? null : MENU_TABS,
@@ -132,7 +132,7 @@ async function editorMock() {
   const names = [];
   for (let e = 0; e < info.nengines; e++) names.push(E.parse[E.CMD.NAMES](await rq(E.req.names(e))).names);
   let prefs = await E.readDevicePreferences(rq, info, names);
-  ok(info.uiCaps === 9 && prefs.palettes.length === 10 && prefs.palettes[0] === "GREY" && prefs.palettes.includes("HI-CON") && prefs.palettes[8] === "NIGHT" && prefs.palettes[9] === "MONO",
+  ok(info.uiCaps === 9 && prefs.palettes.length === 10 && prefs.palettes[0] === "MRC" && prefs.palettes.includes("HI-CON") && prefs.palettes[8] === "NIGHT" && prefs.palettes[9] === "MONO",
      "editor: preference capabilities (palette, favorites) and palette names");
   const pal = E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(0, 2)));
   ok(pal.rc === 0 && pal.palette === 2, "editor: display preference 0 (palette) round trip");
@@ -300,8 +300,6 @@ async function editorMock() {
   }
   const st = E.parse[E.CMD.STEP_SET](await rq(E.req.stepSet(5, { n: 2, notes: [60, 64], time: 0, flags: 1, vel: 100 })));
   ok(st.n === 2 && st.notes[1] === 64 && st.vel === 100, "editor: STEP_SET");
-  const pj = E.parse[E.CMD.PROJECT](await rq(E.req.project(1, 2), { timeout: 4000, retries: 0 }));
-  ok(pj.used === 1, "editor: PROJECT save");
   /* sample upload as smpUpload() does it */
   const s = Int16Array.from({ length: 3000 }, (_, i) => Math.round(8000 * Math.sin(i / 7)));
   const { hdr, data } = E.buildSlot("test", [{ s, root: 60 }]);
@@ -350,22 +348,7 @@ async function editorSamplePresets() {
   const kit = E.parse[C.DUMP](await rq(E.req.dump()), info);
   ok(removed.engine === 10 && removed.preset === 0 && kit.engine === 10 && eq(kit.p.slice(info.pe0), E.DRUM_KIT_E),
     "SAMPLE: factory preset 4 (once PERC) loads DRUM's kit");
-  await rq(E.req.preset(4, 0));
-  m.state.p[info.pe0] = 4;                        /* an old PERC sound (SET 4, no loop: the editor cannot set it now) */
-  m.state.p[info.pe0 + 3] = 0;
-  await rq(E.req.stepSet(5, { n: 1, notes: [42, 0, 0, 0], time: 0, flags: 1, vel: 99 }));
-  m.state.preset = 4;                             /* a project written before the factory preset was removed */
-  const sound = [...m.state.p], steps = JSON.stringify(m.state.step);
-  await rq(E.req.project(1, 2), { timeout: 4000, retries: 0 });
-  await rq(E.req.preset(4, 0));
-  await rq(E.req.stepSet(5, emptyStep));
-  await rq(E.req.project(0, 2), { timeout: 4000, retries: 0 });
-  const loaded = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  const tracks = E.parse[C.TRACK](await rq(E.req.track()));
-  ok(loaded.engine === 10 && loaded.preset === 0 && tracks.tracks[0].engine === 10 && tracks.tracks[0].preset === 0
-    && eq(loaded.p.slice(0, info.pe0), sound.slice(0, info.pe0)) && eq(loaded.p.slice(info.pe0), E.DRUM_KIT_E)
-    && JSON.stringify(m.state.step) === steps,
-    "SAMPLE: old PERC project loads as DRUM's kit, the rest of the sound and the steps kept");
+  /* (MRC: no PROJECT slots: the old PERC project's load is gone with them) */
   if (E.parseMotionAll) {   /* 1.2 (FUN10): 128 motion records; MOTION op 8 lists all, the other ops as before (max 64) */
     let rc = 0;
     for (let i = 0; i < 70; i++)
@@ -420,13 +403,8 @@ function mockTables() {
       if (mp) cmp(`${fe.name} ${p.name}`, { e: mp.e, env: mp.env, mono: mp.mono, pat: mp.pat }, { e: p.e, env: p.env, mono: p.mono, pat: p.pat });
     });
   });
-  cmp("PATTERNS", T.PATTERNS, fw.PATTERNS);
-  const m2 = E.makeMockDevice({ auto: false });   /* the mock's power-on sounds: its parts 1..4, track 4's beat */
+  const m2 = E.makeMockDevice({ auto: false });   /* the mock's power-on sounds: its parts 1..4 (MRC: no factory patterns) */
   cmp("power-on sounds", m2.state.tracks.map((t) => [t.engine, t.preset]), fw.TRK_DEF.map((x) => x.slice(0, 2)));
-  fw.TRK_DEF.forEach((x, k) => {
-    if (x[2]) cmp(`power-on pattern of track ${k + 1}`, m2.state.tracks[k].step.slice(0, 16).map((s) => (s.n ? s.notes[0] : 0)),
-      fw.PATTERNS[x[2] - 1][0]);
-  });
   m2.stop();
   cmp("firmware: G_ENGSEL names == engine names", fw.GP[fw.G_ENGSEL].names, fw.ENG.map((e) => e.name));
   cmp("FM6 patches (init, factory, bank size)", T.FM6, fw.FM6);
@@ -621,6 +599,14 @@ function attachMock(opt, linkOpt = {}) {
   return { m, link, rq, sent, ev, done: () => { link.close(); m.stop(); } };
 }
 const emptyStep = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0 };
+/* a 16-step pattern ([note, flags 1 acc 2 slide 4 tie 8|16 ratchet - 1] x 16) as STEP_SET objects (velocity 96) */
+const stepsOf = (pat) => Array.from({ length: 16 }, (_, i) => {
+  const [n, f] = (pat && pat[i]) || [0, 0];
+  return { n: n ? 1 : 0, notes: [n & 0x7F, 0, 0, 0], time: f & 4 ? 1 : n ? 0 : 2, flags: n ? f & 3 : 0, vel: n ? 96 : 0,
+    ratchet: n ? (f >> 3 & 3) + 1 : 1 };
+});
+const ACID = [[45, 1], [45, 0], [57, 2], [45, 0], [0, 0], [48, 0], [45, 1], [55, 2], [45, 0], [0, 0], [57, 1], [52, 0],
+  [45, 0], [48, 2], [0, 0], [50, 1]];
 
 async function editorLibrarian() {
   const { m, rq, done } = attachMock({});
@@ -629,19 +615,20 @@ async function editorLibrarian() {
   const pdesc = [];
   for (let i = 0; i < info.pcount; i++) pdesc.push(E.parse[C.DESC](await rq(E.req.desc(0, i))));
   const keys = E.paramKeys(pdesc, info.pe0, info.pcount);
-  ok(keys[6] === "PIT" && keys[13] === "PIT#2" && keys[info.pe0] === "E0" && new Set(keys).size === keys.length, "librarian: parameter keys unique (label#n, E0..E7)");
+  ok(keys[6] === "PTCH" && keys[13] === "PTCH#2" && keys[info.pe0] === "E0" && new Set(keys).size === keys.length, "librarian: parameter keys unique (label#n, E0..E7)");
 
   const b = await E.bank.list(rq);
   ok(b.total === 32 && b.slots.length === 32 && b.slots[1].used && b.slots[1].name === "GLASS BELL" && !b.slots[3].used
     && b.slots[31].slot === 31, "librarian: UP_LIST, 32 slots in 2 frames");
 
+  for (let i = 0; i < 16; i++) await rq(E.req.stepSet(i, stepsOf(ACID)[i]));   /* (MRC: the device starts empty) */
   const cap = (await E.capturePatch(rq, info, "acid test")).patch;
   ok(cap.engine === 0 && cap.p.length === info.pcount && cap.pattern && cap.pattern[0][0] === 45 && cap.pattern[0][1] === 1,
-    "librarian: capture = DUMP + first 16 steps");
+    "librarian: capture = DUMP + first 16 steps (the library keeps the pattern)");
   let rc = await E.bank.put(rq, 10, cap);
   const g = await E.bank.get(rq, info, 10);
-  ok(rc === 0 && g.used && g.name === "acid test" && g.engine === 0 && eq(g.p, cap.p) && js(g.pattern) === js(cap.pattern),
-    "librarian: UP_PUT -> UP_GET round trip");
+  ok(rc === 0 && g.used && g.name === "acid test" && g.engine === 0 && eq(g.p, cap.p) && g.pattern === null && g.grid === null,
+    "librarian: UP_PUT -> UP_GET round trip (MRC: the sound only, the device keeps no pattern)");
   const bad = E.parse[C.UP_PUT](await rq(E.req.upPut(60, cap), { timeout: 2500, retries: 0 }));
   ok(bad.rc === 1, "librarian: UP_PUT to a slot past the bank -> rc 1");
   ok(E.upName("") === "PATCH" && E.upName("abcdefghijklmnop") === "abcdefghijkl" && E.upName("Bäss") === "Bss", "librarian: device names (ASCII, 1..12)");
@@ -663,15 +650,15 @@ async function editorLibrarian() {
   ok(rc === 0 && d2.engine === 0 && eq(d2.p.filter((_, i) => i !== 17), cap.p.filter((_, i) => i !== 17)) && d2.p[17] === 3
     && st.every((x) => !x.n) && cap.pattern, "librarian: UP_LOAD applies the sound only (steps and the track's ARP stay)");
   await rq(E.req.set(0, 17, 0));
-  for (let i = 0; i < 16; i++) await rq(E.req.stepSet(i, E.stepsFromPattern(cap.pattern)[i]));   /* (for the captures below) */
+  for (let i = 0; i < 16; i++) await rq(E.req.stepSet(i, stepsOf(cap.pattern)[i]));   /* (for the captures below) */
 
   rc = await E.bank.erase(rq, 11);
   const b2 = await E.bank.list(rq);
   const rcEmpty = await E.bank.load(rq, 11);
   ok(rc === 0 && !b2.slots[11].used && b2.slots[10].used && rcEmpty === 1, "librarian: UP_ERASE, UP_LOAD of an empty slot -> rc 1");
 
-  /* audition: a PHASE patch that holds a pattern; the sound only, the sequence (with notes) stays */
-  const bass = await E.bank.get(rq, info, 2);   /* PHASE RESO, with the ACID pattern */
+  /* audition: a PHASE patch; the sound only, the sequence (with notes) stays */
+  const bass = await E.bank.get(rq, info, 2);   /* PHASE RESO */
   await rq(E.req.stepSet(20, { n: 1, notes: [50, 0, 0, 0], time: 0, flags: 0, vel: 90 }));
   await rq(E.req.set(0, 29, 24));               /* the track's own: LEN 24, ARP MODE 2 */
   await rq(E.req.set(0, 17, 2));
@@ -700,11 +687,11 @@ async function editorLibrarian() {
 
   /* ties as the firmware keeps them: no note; a rest has no flags */
   const tied = [[60, 1], [61, 4], [0, 4], [0, 3], [64, 2]];
-  const norm = E.patternFromSteps(E.stepsFromPattern(tied));
+  const norm = E.patternFromSteps(stepsOf(tied));
   rc = await E.bank.put(rq, 12, { ...cap, name: "TIES", pattern: tied });
   const g3 = await E.bank.get(rq, info, 12);
-  ok(rc === 0 && js(norm.slice(0, 5)) === js([[60, 1], [0, 4], [0, 4], [0, 0], [64, 2]]) && js(g3.pattern) === js(norm),
-    "librarian: pattern ties / rests normalised like the firmware");
+  ok(rc === 0 && js(norm.slice(0, 5)) === js([[60, 1], [0, 4], [0, 4], [0, 0], [64, 2]]) && g3.pattern === null,
+    "librarian: pattern ties / rests normalised; a patch's pattern stays in the library");
   rc = await E.bank.store(rq, 13, "");
   ok(rc === 0 && (await E.bank.get(rq, info, 13)).name === `${info.engines[d4.engine]} 14`, "librarian: UP_STORE with no name -> automatic name");
 
@@ -775,7 +762,7 @@ async function editorLibrarian() {
     ok(keys104[96] === "E0" && good(sp) && good(lp) && good(nk),
       "library file: 104-parameter files (1.2 .. 1.4: patch, labelled, unlabelled) map the engine's 8 to 103..110, the INSERT, TYPE, ESYNC unset");
   }
-  const old = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 0, preset: 4, engineName: "ANALOG", presetName: "ACID", p: d2.p, steps: E.stepsFromPattern(cap.pattern) }, ctx);
+  const old = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 0, preset: 4, engineName: "ANALOG", presetName: "ACID", p: d2.p, steps: stepsOf(cap.pattern) }, ctx);
   ok(old.patches.length === 1 && eq(old.patches[0].p, d2.p) && js(old.patches[0].pattern) === js(cap.pattern), "library file: reads the old \"Save to file\" format");
   let threw = false;
   try { E.readLibraryFile({ format: "something" }, ctx); } catch (e) { threw = true; }
@@ -783,8 +770,8 @@ async function editorLibrarian() {
   done();
 }
 
-/* v5: the DRUM grid. Steps carry lane hits and accents (3 bytes after vel); a user preset of a DRUM track holds a
-   16-step grid (UP_GET / UP_PUT kind 1); the steps page writes them as lane names */
+/* v5: the DRUM grid. Steps carry lane hits and accents (3 bytes after vel); a capture of a DRUM track holds a 16-step
+   grid in the library (MRC: the device's user presets keep none); the steps page writes them as lane names */
 async function editorGrid() {
   const { m, rq, done } = attachMock({});
   const C = E.CMD;
@@ -810,22 +797,16 @@ async function editorGrid() {
      "grid: capture of a DRUM track = its grid (a crash 49 on BELL)");
   const rc = await E.bank.put(rq, 14, cap.patch);
   const g = await E.bank.get(rq, info, 14);
-  ok(rc === 0 && g.grid && !g.pattern && JSON.stringify(g.grid) === JSON.stringify(cap.patch.grid), "grid: UP_PUT kind 1 -> UP_GET round trip");
+  ok(rc === 0 && g.used && g.grid === null && g.pattern === null, "grid: UP_PUT of a DRUM capture writes the sound only (MRC)");
   const put = E.req.upPut(14, cap.patch), saved = JSON.stringify(m.state.bank[14]);
-  const base = put[1].length - 17;
-  for (const bytes of [put[1].slice(0, -1), [...put[1], 0], [...put[1].slice(0, base), 2, ...Array(16).fill(0)]]) {
+  for (const bytes of [put[1].slice(0, -1), [...put[1], 0, 0]]) {
     const rejected = E.parse[C.UP_PUT](await rq([C.UP_PUT, bytes]));
     ok(rejected.rc === 1 && JSON.stringify(m.state.bank[14]) === saved,
-       "grid: malformed preset extension rejected without changing saved data");
+       "grid: a malformed UP_PUT rejected without changing saved data");
   }
   const ctx = { keys: null, engines: info.engines };
-  const back = E.readLibraryFile(JSON.parse(JSON.stringify(E.libraryFile("bank", [{ ...g, slot: 14 }], ctx))), ctx);
-  ok(JSON.stringify(back.patches[0].grid) === JSON.stringify(g.grid) && !back.patches[0].pattern, "grid: a library file keeps the grid");
-  await rq(E.req.upStore(15, "STORED"));
-  const g2 = await E.bank.get(rq, info, 15);
-  ok(g2.grid && g2.grid[0][0] === 0x81 && g2.grid[0][1] === 0x80, "grid: UP_STORE of a DRUM track stores its grid");
-  const p3 = await E.bank.get(rq, info, 2);
-  ok(p3.pattern && p3.grid === null, "grid: a note pattern stays a pattern (kind 0)");
+  const back = E.readLibraryFile(JSON.parse(JSON.stringify(E.libraryFile("bank", [{ ...cap.patch, slot: 14 }], ctx))), ctx);
+  ok(JSON.stringify(back.patches[0].grid) === JSON.stringify(cap.patch.grid) && !back.patches[0].pattern, "grid: a library file keeps the grid");
   done();
 }
 
@@ -854,10 +835,10 @@ async function editorRatchet() {
   const old = E.parse[C.INFO]([88, 0, 0, 91, 27, 64, 83, 4, 16, 0x55, 1, 9, 0x4d, 1, 64, 1, 0x42, 1, 3, 0x46, 1, 8, 27, 0x53, 1, 3]);
   ok(fw.ratchet === 4 && fw.syncCaps === 3 && old.ratchet === 0 && E.parse[C.STEP_GET]([1, 1, 60, 0, 0, 0, 0, 0, 96, 0, 0, 0, 100]).ratchet === 1,
     "ratchet: the firmware's INFO trailer; 1.0's has none and its steps read x1");
-  const steps = E.stepsFromPattern([[60, 1 | 2 << 3], [0, 4], [62, 3 << 3], ...Array(13).fill([0, 0])]);
+  const steps = stepsOf([[60, 1 | 2 << 3], [0, 4], [62, 3 << 3], ...Array(13).fill([0, 0])]);
   ok(steps[0].ratchet === 3 && steps[0].flags === 1 && steps[2].ratchet === 4 && steps[1].time === 1 &&
      JSON.stringify(E.patternFromSteps(steps).slice(0, 3)) === JSON.stringify([[60, 17], [0, 4], [62, 24]]),
-     "ratchet: a user preset's pattern keeps it in its flags (8 | 16)");
+     "ratchet: a library patch's pattern keeps it in its flags (8 | 16)");
   done();
   const o = attachMock({ noSync: true });
   const oi = E.parse[C.INFO](await o.rq(E.req.info()));
@@ -1005,14 +986,7 @@ async function editorTracks() {
   const rl = ev.pushes.find((f) => f.cmd === C.RELOAD), sc = ev.pushes.find((f) => f.cmd === C.STEP_CHANGED);
   ok(rl && E.parse[C.RELOAD](rl.a).track === 2 && sc && E.parse[C.STEP_CHANGED](sc.a).track === 2 && E.parse[C.STEP_CHANGED](sc.a).index === 4,
     "tracks: RELOAD / STEP_CHANGED carry the selected track");
-  /* projects keep all four tracks */
-  await rq(E.req.project(1, 3), { timeout: 4000, retries: 0 });
-  await rq(E.req.trackStep(2, 5, { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0 }));
-  await rq(E.req.track(0));
-  await rq(E.req.project(0, 3), { timeout: 4000, retries: 0 });
-  const back = E.parse[C.TRACK_STEP](await rq(E.req.trackStep(2, 5)));
-  const sel = E.parse[C.TRACK](await rq(E.req.track())).sel;
-  ok(back.n === 2 && back.notes[0] === 60 && sel === 2, "tracks: PROJECT save / load keeps every track and the selection");
+  /* (MRC: no PROJECT slots; the autosave keeps all four tracks, outside the protocol) */
   /* older firmware: no NTRK in INFO, no RELOAD track byte */
   const o = attachMock({ legacy: true });
   const oi = E.parse[C.INFO](await o.rq(E.req.info()));
@@ -1062,12 +1036,10 @@ async function editorMixer() {
   await sleep(10);
   const chd = E.parse[C.CHANGED](ev.pushes.filter((f) => f.cmd === C.CHANGED).pop().a);
   ok(chd.scope === 0 && chd.id === 0 && chd.value === 90, "mixer: track 4's level on the device pushes its LEVEL (P_LEVEL)");
-  /* track 4's demo beat: the DRUM kit's lane hits and accents */
+  /* track 4: a DRUM kit, its sequencer empty at power-on (MRC: no factory patterns) */
   const st = [];
   for (let i = 0; i < 16; i++) st.push(E.parse[C.TRACK_STEP](await rq(E.req.trackStep(3, i))));
-  ok(st.every((s) => s.n === 0) && st[0].hit === 1 && st[0].acc === 1 && st[1].hit === 8
-    && st[4].hit === 2 && st[4].acc === 2 && st[14].hit === 16,
-    "mixer: the mock's track 4 holds the BEAT grid (KICK CHH ... SNARE ... OHH)");
+  ok(st.every((s) => s.n === 0 && !s.hit), "mixer: the mock's track 4 starts empty (MRC: no factory patterns)");
   ok(JSON.stringify(E.parseNotes("C4 E4 G4")) === "[60,64,67]" && JSON.stringify(E.parseNotes("36 38")) === "[36,38]" && E.parseNotes("KICK") === null,
     "mixer: notes parse as numbers or note names (no GM drum names)");
   done();
@@ -1390,7 +1362,7 @@ function fm6TabNoBank() {
   ok(!/TARGET\.BANK|fm6Erase|fm6Store|defaultSlot/.test(code), "FM6 tab: no bank requests");
   const tb = html.slice(html.indexOf("const TEXT = {"), html.indexOf("\n};", html.indexOf("const TEXT = {")) + 2);
   const T = vm.runInNewContext(tb.replace("const TEXT =", "(") + ")"), en = T.en, ja = T.ja;
-  ok(/send it to a track, then save a user preset \(SAVE\) or a project/.test(en.fm6Keep) && ja.fm6Keep && !/B1|B27|bank/i.test(en.fm6Help + en.fm6NeedDevice),
+  ok(/send it to a track, then save a user preset \(SAVE\)/.test(en.fm6Keep) && !/project/.test(en.fm6Keep) && ja.fm6Keep && !/B1|B27|bank/i.test(en.fm6Help + en.fm6NeedDevice),
     "FM6 tab: the hint (send to a track, then SAVE on the device), no B slots in the help");
 }
 
@@ -1404,26 +1376,27 @@ async function editorSong() {
   const info = E.parse[C.INFO](await rq(E.req.info()));
   ok(info.chainRows === 16, "SONG: INFO capability appended");
   const ask = async (op = 0, rows = []) => E.parse[C.SONG](await rq(E.req.song(op, rows)));
-  const rows = [{ slot: 0, repeat: 4 }, { slot: 1, repeat: 2 }, { slot: 0, repeat: 1 }];
+  /* MRC: a saved pattern per track (P01..P24, null "-"; the mock has P01 and P02 saved) */
+  const rows = [{ slots: [0, 1, null, 0], repeat: 4 }, { slots: [1, 1, 1, 1], repeat: 2 }, { slots: [0, null, null, null], repeat: 1 }];
   let r = await ask(1, rows);
-  ok(r.rc === 0 && JSON.stringify(r.rows) === JSON.stringify(rows), "SONG: rows and repeats round trip");
+  ok(r.rc === 0 && JSON.stringify(r.rows) === JSON.stringify(rows), "SONG: sections (a pattern per track, \"-\") and repeats round trip");
+  ok(js(E.req.song(1, [rows[0]])) === js([C.SONG, [5, 1, 0, 1, 127, 0, 4]]) && js(E.req.song(2)) === js([C.SONG, [6]]),
+     "SONG: sent as ops 4..7, \"-\" as 127");
+  r = await ask(1, [{ slots: [4, 0, 0, 0], repeat: 1 }]);
   r = await ask(2);
-  ok(r.rc === 4 && !r.playing, "SONG: missing source rejected before PLAY");
-  await rq(E.req.project(1, 1));
+  ok(r.rc === 8 && !r.playing, "SONG: a pattern not saved (P05) rejected before PLAY (rc 4 + pattern)");
+  r = await ask(1, rows);
   r = await ask(2);
-  ok(!r.rc && r.playing && r.row === 0 && r.remaining === 4, "SONG: PLAY starts from row 1");
-  r = await ask(1, [{ slot: 0, repeat: 1 }]);
-  ok(r.rc === 2 && r.count === 3, "SONG: editing during PLAY refused, rows kept");
+  ok(!r.rc && r.playing && r.row === 0 && r.remaining === 4, "SONG: PLAY starts from section 1");
+  r = await ask(1, [{ slots: [0, 0, 0, 0], repeat: 1 }]);
+  ok(r.rc === 2 && r.count === 3, "SONG: editing during PLAY refused, sections kept");
   await ask(3);
-  r = E.parse[C.SONG](await rq([C.SONG, [1, 1, 0, 0]]));
-  ok(r.rc === 1 && r.count === 3, "SONG: zero repeats rejected without changing rows");
-  r = E.parse[C.SONG](await rq([C.SONG, [1, 2, 0, 1]]));
-  ok(r.rc === 1 && r.count === 3, "SONG: short row list rejected");
-  await rq(E.req.project(1, 2));
-  await ask(1, []);
-  await rq(E.req.project(0, 2));
-  r = await ask();
-  ok(JSON.stringify(r.rows) === JSON.stringify(rows) && !r.playing, "SONG: project save/load recalls the chain");
+  r = E.parse[C.SONG](await rq([C.SONG, [5, 1, 0, 0, 0, 0, 0]]));
+  ok(r.rc === 1 && r.count === 3, "SONG: zero repeats rejected without changing sections");
+  r = E.parse[C.SONG](await rq([C.SONG, [5, 2, 0, 0, 0, 0, 1]]));
+  ok(r.rc === 1 && r.count === 3, "SONG: short section list rejected");
+  r = E.parse[C.SONG](await rq([C.SONG, [5, 1, 24, 0, 0, 0, 1]]));
+  ok(r.rc === 1 && r.count === 3, "SONG: a pattern past P24 rejected");
   await ask(1, []);
   r = await ask(2);
   ok(r.rc === 1 && !r.playing, "SONG: empty chain does not PLAY");
@@ -1449,9 +1422,9 @@ async function editorSessions() {
        setDevice: d => { dev = d; }, count: () => busy })`, {
     Date, Error,
     $: id => { if (!nodes.has(id)) nodes.set(id, {}); return nodes.get(id); },
-    CMD: { INFO: 1, PROJECT: 2, SMP_INFO: 3, DUMP: 4 },
-    parse: { 1: r => r, 2: () => ({ used: false }), 3: () => ({}), 4: r => r },
-    req: { info: () => "info", project: () => "project", smpInfo: () => "sample", dump: () => "dump" },
+    CMD: { INFO: 1, SMP_INFO: 3, DUMP: 4 },
+    parse: { 1: r => r, 3: () => ({}), 4: r => r },
+    req: { info: () => "info", smpInfo: () => "sample", dump: () => "dump" },
     paramKeys: noop, libAdopt: () => { adoptStarted?.(); return adopted || Promise.resolve(); },
     buildUI: () => { shown++; }, renderPanels: noop, loadSteps: noop,
     startWatch: async () => false, renderLive: noop, renderLib: noop,
@@ -1488,7 +1461,7 @@ async function editorSessions() {
 
   adopted = new Promise(r => { resolve = r; });
   const reachedAdoption = new Promise(r => { adoptStarted = r; });
-  const next = { pdesc: [], gdesc: [], names: [], slotUsed: [], link: { request: async kind =>
+  const next = { pdesc: [], gdesc: [], names: [], link: { request: async kind =>
     kind === "info" ? { pcount: 0, gcount: 0, nengines: 0 } : {} } };
   S.setDevice(next);
   const loadingNext = S.load(next).then(() => null, e => e);

@@ -7,6 +7,8 @@
  * Id 8 (the FM6 patch bank of 1.0..1.0.2) is listed empty since 1.0.3; a PUT of it from an older archive moves its
  * patches into the user presets restored before it (ids 6, 7), as the first boot after the update does (up_fm6.c).
  * Id 9 is the user presets' FM6 patches (up_fm6.c), appended in 1.0.3.
+ * MRC: ids 2..5 are the saved patterns' four banks (pattern.c, the flash objects of upstream's PROJECT slots A..D), read
+ * from the flash (storage.c st_current leaves the bank in st_buf); an archive of upstream's projects there is refused.
  */
 static const uint8_t ED_BK_IDS[13] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34};
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
@@ -36,9 +38,13 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
     *len = 0;
     if (id == 0u) { *len = sizeof(project_store_t); return ED_BK_RAW; }
     if (id == 1u) { *len = sizeof ed_bk_settings; return (const uint8_t *)&ed_bk_settings; }
-    if (id >= 2u && id <= 5u) {
-        if (project_used(id - 2u)) *len = sizeof proj_slot[0];
-        return (const uint8_t *)&proj_slot[id - 2u];
+    if (id >= 2u && id <= 5u) {                     /* MRC: a saved patterns' bank, as stored (none: empty) */
+#if FELUCCA_FLASH
+        st_hdr_t h;
+        if (flash_ok && st_current(OBJ_PAT0 + id - 2u, &h) >= 0 && pat_bank_ok(st_buf, h.len))
+            *len = h.len;
+#endif
+        return st_buf;
     }
     if (id == 6u || id == 7u) {
         if (up_bank[id - 6u].magic == UP_BANK_MAGIC) *len = sizeof up_bank[0];
@@ -93,18 +99,13 @@ static uint32_t ed_bk_commit(void)
     uint8_t *raw = ED_BK_RAW;
     uint32_t obj;
     if (ed_bk_pos != ed_bk_len || st_crc32(raw, ed_bk_len) != ed_bk_crc) return 2;
-    if (ed_bk_id == 0u || (ed_bk_id >= 2u && ed_bk_id <= 5u)) {
-        if (ed_bk_len && !proj_import(&proj_scratch, raw, (int)ed_bk_len)) return 2;
-        if (ed_bk_len) {                            /* an older format becomes FUN10 inside its ranges */
-            proj_bound(&proj_scratch);
-            if (!proj_pack((project_store_t *)raw, &proj_scratch)) return 2;
-            ed_bk_len = sizeof(project_store_t);
-        }
-        if (ed_bk_id == 0u) {
-            if (!ed_bk_len) return 2;
-            return project_restore_runtime(&proj_scratch) ? 2u : 0u;
-        }
-        obj = OBJ_PROJECT0 + ed_bk_id - 2u;
+    if (ed_bk_id == 0u) {                           /* the music: the autosave's project */
+        if (!ed_bk_len || !proj_import(&proj_scratch, raw, (int)ed_bk_len)) return 2;
+        proj_bound(&proj_scratch);                  /* (inside today's ranges) */
+        return project_restore_runtime(&proj_scratch) ? 2u : 0u;
+    } else if (ed_bk_id >= 2u && ed_bk_id <= 5u) {  /* MRC: a saved patterns' bank (0: none) */
+        if (ed_bk_len && !pat_bank_ok(raw, ed_bk_len)) return 2;
+        obj = OBJ_PAT0 + ed_bk_id - 2u;
     } else if (ed_bk_id == 1u) {
         const persist_t *p = (const persist_t *)raw;
         if (ed_bk_len != sizeof *p || p->magic != PERSIST_MAGIC || !palette_stored_ok(p->palette) ||
@@ -135,10 +136,7 @@ static uint32_t ed_bk_commit(void)
     (void)obj;
 #endif
     if (ed_bk_id >= 2u && ed_bk_id <= 5u) {
-        memset(&proj_slot[ed_bk_id - 2u], 0, sizeof proj_slot[0]);
-        if (proj_cur == ed_bk_id - 2u)
-            proj_cur = PROJ_NO_SLOT;                     /* (another project there now: the music keeps its name) */
-        if (ed_bk_len) memcpy(&proj_slot[ed_bk_id - 2u], raw, ed_bk_len);
+        pat_bank_reload(ed_bk_id - 2u);             /* (the staging RAM is the bank's from here) */
     } else if (ed_bk_id == 1u) {
         memcpy(&ed_bk_settings, raw, sizeof ed_bk_settings);
         settings_import(&ed_bk_settings, sizeof ed_bk_settings);
@@ -155,11 +153,6 @@ static uint32_t ed_bk_commit(void)
     sync_reload = 1; ui.force = 1;
     return 0;
 }
-/* a project object's length: FUN10 (today's, 1.2), FUN9 (1.1), FUN8 (before the DRUM lane levels, 1.0.x), FUN7 */
-static int proj_store_len(uint32_t len)
-{
-    return len == sizeof(project_store_t) || len == PROJ_STORE_V9 || len == PROJ_STORE_V8 || len == PROJ_STORE_V7;
-}
 static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
 {
     /* the arguments first: a malformed request never stops the transport */
@@ -167,9 +160,9 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
-        if (len > ED_BK_MAX || (a[1] == 0u && !proj_store_len(len)) ||
+        if (len > ED_BK_MAX || (a[1] == 0u && len != sizeof(project_store_t)) ||
             (a[1] == 1u && len != sizeof(persist_t)) ||
-            (a[1] >= 2u && a[1] <= 5u && len && !proj_store_len(len)) ||
+            (a[1] >= 2u && a[1] <= 5u && len && len != PAT_BANK_SIZE) ||
             ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t)) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t)) || (a[1] == 9u && len && len != sizeof(upf_t))) return 1;
         if (ed_flash_stop()) return 3;

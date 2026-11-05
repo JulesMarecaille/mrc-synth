@@ -60,7 +60,7 @@ if (typeof registerProcessor === "function") {
       this.sentWrites = -1;
       this.sentLeds = "";
       this.lastFrame = 0;
-      this.period = 1 / 30;
+      this.period = 1 / 60;                           // MRC: a moving page redraws every 30 ms; at 1 / 30 the two beat (a drawing twice, the next skipped)
       this.busy = 0;
       this.frames = 0;
       this.queue = [];                                // button / key changes, each held >= HOLD_MS of device time

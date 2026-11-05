@@ -65,10 +65,7 @@ static void felucca_init(void)
         t->engine = t->eng_req;
         eng_mem_claim(t);                     /* (zeros already: no note can come before) */
         track_defaults_steps(t);              /* (a sound load never touches them) */
-        if (TRK_DEF[i][2])
-            load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
-        pat_sig[i] = steps_sig(t);            /* a default pattern, not the user's */
-        pat_last[i] = TRK_DEF[i][2];
+        pat_sig[i] = steps_sig(t);            /* empty: not the user's */
     }
     undo_depth--;
     song.sel = 0;
@@ -112,7 +109,7 @@ static void fm1_main(void)
     settings_init();
     usb_serial_apply();                                 /* (#67: the saved USB SERIAL before usb_start) */
     lcd_init();
-    draw_splash();                                      /* ui_draw.c (1.1.5) */
+    splash_at(0);                                       /* ui_draw.c (1.1.5; MRC: animated, the screen cleared) */
     if (felucca_dbg.magic != DBG_MAGIC) {
         memset(&felucca_dbg, 0, sizeof felucca_dbg);
         felucca_dbg.magic = DBG_MAGIC;
@@ -156,10 +153,15 @@ static void fm1_main(void)
         settings_save();
     }
     autosave_boot(boot_clean);                /* (1.2) the last session's music, under the splash */
-    for (ms = 0; ms < 400u; ms += 10u) {      /* the splash; the pot followed (MIDI IN plays under it) */
+    ms = fm1_ms;
+    while (fm1_ms - ms < SPL_MS) {            /* the splash, MRC: 3.25 s (upstream 400 ms), animated, then still 1 s
+                                               * (ui_draw.c splash_at, by the clock: its drawing time counts); the
+                                               * pot followed (MIDI IN plays under it) */
+        splash_at(fm1_ms - ms);
         fm1_delay_ms(10);
         master_poll();
     }
+    splash_at(SPL_END);                       /* (the still, had a slow frame skipped it) */
     kb_boot_hold = 0;
     lcd_fill(0, 0, 240, 240, T_BG);
     scrn.idle = fm1_ms;                        /* (MENU > SCREEN OFF: from here) */

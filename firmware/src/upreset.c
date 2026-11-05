@@ -4,9 +4,10 @@
  * slots in two storage.c objects (OBJ_UPRESET0/1, A/B sectors at
  * 0xDC000..0xDFFFF), 16 records each, mirrored in RAM so browsing never
  * reads flash. A record: engine, name, the instrument parameters, a 16-step
- * pattern (factory PATTERNS[] format). An FM6 sound's patch is kept beside the record (up_fm6.c, since 1.0.3:
- * the record itself is unchanged). Loading one loads the sound only; its pattern
- * is offered by SAVE > PHRASES ("U07", up_pat_load). The format is unchanged.
+ * pattern (16 notes and flags). An FM6 sound's patch is kept beside the record (up_fm6.c, since 1.0.3:
+ * the record itself is unchanged). Loading one loads the sound only. MRC: a sound and a pattern are saved apart (SAVE >
+ * PATTERN, pattern.c): a record is written with an empty pattern, and the patterns older records hold are not offered
+ * any more (upstream: by SAVE > PHRASES, "U07"). The format is unchanged.
  *
  * Versions: a bank whose magic, record size or slot count differ reads as
  * empty; so does a record with another layout version. A record keeps np =
@@ -115,7 +116,6 @@ static int up_valid(const up_rec_t *r)
 
 static int up_used(uint32_t k) { return k < UP_SLOTS && up_valid(up_rec(k)); }
 
-static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
 static int16_t up_value(const up_rec_t *r, uint32_t k) { return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
@@ -133,13 +133,12 @@ static void up_migrate(up_rec_t *r)
     }
 }
 
-static void up_pat_norm(uint8_t *note, uint8_t *flags);
-/* after loading bank b (len bytes, -1 = none): wrong shape -> empty; each record's pattern inside its fields, as
- * UP_PUT and SAVE store it (flash or a restored backup may hold anything there) */
+/* after loading bank b (len bytes, -1 = none): wrong shape -> empty (MRC: a record's pattern is never read, its bytes
+ * stay as they are) */
 static void up_bank_check(uint32_t b, int len)
 {
     up_bank_t *bk = &up_bank[b];
-    uint32_t i, k;
+    uint32_t i;
     if (len != (int)sizeof *bk || bk->magic != UP_BANK_MAGIC || bk->rsize != sizeof(up_rec_t) ||
         bk->nslot != UP_PER_BANK)
         memset(bk, 0, sizeof *bk);
@@ -148,11 +147,6 @@ static void up_bank_check(uint32_t b, int len)
         if (!up_valid(r))
             continue;
         up_migrate(r);
-        for (k = 0; k < 16u; k++)
-            if (up_grid(r))
-                r->flags[k] &= r->note[k];          /* a drum grid: accents only on its hits */
-            else
-                up_pat_norm(&r->note[k], &r->flags[k]);
     }
 }
 
@@ -184,40 +178,9 @@ static void up_name(uint32_t k, char *b)       /* upper case, 0-terminated: b ho
     b[i] = 0;
 }
 
-static void up_pat_norm(uint8_t *note, uint8_t *flags)   /* tie: no note; rest: no flags */
-{
-    *note &= 127u;
-    if (*flags & 4u) {
-        *note = 0;
-        *flags = 4;
-    } else {
-        *flags = *note ? (uint8_t)(*flags & (SF_ACCENT | SF_SLIDE | SF_RATCH)) : 0u;
-    }
-}
-
-static void up_pat_from(up_rec_t *r, const step_t *st)   /* the first 16 steps -> the pattern */
-{
-    uint32_t i;
-    for (i = 0; i < 16u; i++) {
-        r->note[i] = st[i].time == ST_NOTE && st[i].n ? st[i].note[0] : 0u;
-        r->flags[i] = st[i].time == ST_TIE ? 4u : (uint8_t)(st[i].flags & ~SF_NUDGE);   /* (no nudge: 4 is the tie here) */
-        up_pat_norm(&r->note[i], &r->flags[i]);
-    }
-}
-
-static int up_pat_empty(const up_rec_t *r)
-{
-    uint32_t i;
-    for (i = 0; i < 16u; i++)
-        if (r->note[i])
-            return 0;
-    return 1;
-}
-
-/* UP_PUT arguments: slot, engine, name, P_COUNT x v14, 16 x (note, flags) [, kind, 16 x hi [, category]] -> *r
- * (values not yet clamped); 0 ok, 1 bad arguments. *slot gets the slot byte when there is one. kind 1 (and its 16
- * bytes): a drum grid, the pairs the low 7 bits of each step's hits and accents, hi bit 0 / 1 their bit 7 (lane 8).
- * category (1.2, category.c CAT_*, 0 none): after the kind's 16 bytes (kind 0 sends them too, ignored) */
+/* UP_PUT arguments: slot, engine, name, P_COUNT x v14 [, category] -> *r (values not yet clamped); 0 ok, 1 bad
+ * arguments. *slot gets the slot byte when there is one. category (1.2, category.c CAT_*, 0 none). MRC: no pattern
+ * (upstream: 16 x (note, flags) and a drum grid's kind before the category); the record's is left empty */
 static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
 {
     uint32_t i, n, k, end;
@@ -227,9 +190,9 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     for (n = 0; 2u + n < na && a[2 + n]; n++)
         ;
     k = 3u + n;                                  /* after the name's 0 */
-    end = k + 2u * P_COUNT + 32u;
+    end = k + 2u * P_COUNT;
     if (a[0] >= UP_SLOTS || a[1] >= NENGINES || 2u + n >= na || !up_name_ok(a + 2, n) ||
-        (na != end && ((na != end + 17u && na != end + 18u) || a[end] > 1u)) || (na == end + 18u && a[end + 17u] >= CAT_N))
+        (na != end && na != end + 1u) || (na == end + 1u && a[end] >= CAT_N))
         return 1;
     up_rec_t staged, *target = r;
     r = &staged;
@@ -246,25 +209,8 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
             if (value < -64 || value > 127) return 1;
             up_set_value(r, i, (int16_t)value);
         }
-    if (na >= k + 33u + 16u && a[k + 32u] == 1u) {    /* a drum grid */
-        r->ver = UP_VER_GRID;
-        for (i = 0; i < 16u; i++) {
-            uint32_t hi = a[k + 33u + i];
-            r->note[i] = (uint8_t)((a[k + 2u * i] & 127u) | (hi & 1u) << 7);
-            r->flags[i] = (uint8_t)(((a[k + 2u * i + 1u] & 127u) | (hi & 2u) << 6) & r->note[i]);
-        }
-        if (na == end + 18u)
-            up_set_cat(r, a[end + 17u]);
-        *target = *r;
-        return 0;
-    }
-    for (i = 0; i < 16u; i++, k += 2u) {
-        r->note[i] = a[k];
-        r->flags[i] = a[k + 1];
-        up_pat_norm(&r->note[i], &r->flags[i]);
-    }
-    if (na == end + 18u)
-        up_set_cat(r, a[end + 17u]);
+    if (na == end + 1u)
+        up_set_cat(r, a[end]);
     up_migrate(r);                               /* (an editor of before the DRUM engine) */
     *target = *r;
     return 0;
@@ -408,20 +354,7 @@ static int up_store_cat(uint32_t k, const char *name, uint32_t cat)
     up_set_name(&r, k, name);
     for (i = 0; i < P_COUNT; i++)
         up_set_value(&r, i, motion_base_value(TSEL, i));
-    up_pat_from(&r, TSEL->step);
-    up_set_cat(&r, cat ? cat : track_cat(TSEL));
-    if (drum_track(TSEL)) {                             /* a DRUM track that strikes a lane: its grid */
-        uint32_t any = 0;
-        for (i = 0; i < 16u; i++)
-            any |= step_lanes(&TSEL->step[i]);
-        if (any) {
-            r.ver = UP_VER_GRID;
-            for (i = 0; i < 16u; i++) {
-                r.note[i] = (uint8_t)step_lanes(&TSEL->step[i]);
-                r.flags[i] = (uint8_t)step_accents(&TSEL->step[i]);
-            }
-        }
-    }
+    up_set_cat(&r, cat ? cat : track_cat(TSEL));      /* (MRC: no pattern, the steps are SAVE > PATTERN's) */
     {
         int rc = up_put(k, &r);                         /* the record first, then its FM6 patch (up_fm6.c) */
         if ((rc == 0 || rc == 3) && r.engine == ENGI_FM6) {
@@ -450,8 +383,8 @@ static int up_rename_cat(uint32_t k, const char *name, uint32_t cat)
 static int up_rename(uint32_t k, const char *name) { return up_rename_cat(k, name, 0); }
 
 /* slot k -> the selected part's sound: engine and every parameter except the track's own (param_kept:
- * the mix, ARP, SCL, the pattern parameters, the SLICER). The steps stay: the record's pattern is
- * loaded only from SAVE > PHRASES (up_pat_load). 0 ok, 1 empty */
+ * the mix, ARP, SCL, the pattern parameters, the SLICER). The steps stay (MRC: a record's pattern is never loaded).
+ * 0 ok, 1 empty */
 static int up_load(uint32_t k)
 {
     const up_rec_t *r;
@@ -487,54 +420,6 @@ static int up_load(uint32_t k)
     sync_reload = 1;
     ui.force = 1;
     return 0;
-}
-
-/* the patterns of the user presets (SAVE > PHRASES lists them after the factory ones, ui.c pat_count) */
-static int up_has_pat(uint32_t k) { return up_used(k) && !up_pat_empty(up_rec(k)); }
-
-static uint32_t up_pat_count(void)
-{
-    uint32_t k, n = 0;
-    for (k = 0; k < UP_SLOTS; k++)
-        n += (uint32_t)up_has_pat(k);
-    return n;
-}
-
-static uint32_t up_pat_nth(uint32_t n)         /* slot of the n-th one that holds a pattern (n < up_pat_count()) */
-{
-    uint32_t k;
-    for (k = 0; k < UP_SLOTS; k++)
-        if (up_has_pat(k) && !n--)
-            return k;
-    return 0;
-}
-
-static uint32_t up_pat_rank(uint32_t slot)     /* ones that hold a pattern before it */
-{
-    uint32_t k, n = 0;
-    for (k = 0; k < slot && k < UP_SLOTS; k++)
-        n += (uint32_t)up_has_pat(k);
-    return n;
-}
-
-/* slot k's pattern -> track t's steps 1..16 (the rest cleared), with the record's LEN (at most 16), DIV,
- * SWING and GATE; the sound stays (ui.c pat_load: the undo copy) */
-static void up_pat_load(track_t *t, uint32_t k)
-{
-    const up_rec_t *r;
-    int16_t v[P_COUNT];
-    uint32_t i;
-    if (!up_has_pat(k))
-        return;
-    r = up_rec(k);
-    up_values(r, v);
-    if (up_grid(r))
-        load_grid16(t, r->note, r->flags);
-    else
-        load_pat16(t, r->note, r->flags);
-    for (i = P_SDIV; i <= P_SGATE; i++)
-        t->p[i] = v[i];
-    t->p[P_SLEN] = (int16_t)clamp(v[P_SLEN], 1, 16);   /* (the pattern has 16 steps) */
 }
 
 /* the engine a used slot's sound plays on (a DIGITAL record: FM6, without FELUCCA_FM4) */
@@ -582,8 +467,6 @@ static void up_ui_named(uint32_t op, uint32_t k, const char *name, uint32_t cat)
     }
     if (op == 0u) {
         up_load(k);
-        if (up_has_pat(k))                              /* SAVE > PHRASES starts at its pattern */
-            ui.ppick = (uint8_t)(NPATTERNS + up_pat_rank(k));
         ui_say("LOADED ", l);
         return;
     }

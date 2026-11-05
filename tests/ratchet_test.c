@@ -6,8 +6,8 @@
  *              gate; chords and the DRUM grid's hits repeat whole; x1 slides and ties out as before, x2..x4 never;
  *              the chance is rolled once per pass for all its parts; swing; STOP and an edit to fewer end them.
  *   PROJECTS   FUN8 round trip of x1..x4 (bit 7 of the velocity and chance bytes), an x1 project packs those bytes
- *              as before, FUN7 / FUN6 images load x1.
- *   PRESETS    a user preset's note pattern keeps it (flags 8 | 16, UP_PUT too); a drum grid record has no room: x1.
+ *              as before (MRC: FUN7 / FUN6 are no longer read).
+ *   PATTERNS   (MRC) a saved pattern keeps it, on notes and on the DRUM grid's hits (user presets keep no pattern).
  *   UI         SEQ > AUTOMATION RATCH rows, KNOB 4 (x1..x4, clamped, the row's step; dimmed on a REST, a TIE, an empty
  *              step); the piano roll and the DRUM grid draw a ratcheted step in its parts, the roll no slide line
  *              out of one.
@@ -185,34 +185,6 @@ static int projects(void)
         for (i = 0; i < NSTEP; i++)
             ok &= packed.raw[pos + P_COUNT + 2u + i * 9u + 5u] < 128u && packed.raw[pos + P_COUNT + 2u + i * 9u + 8u] < 128u;
     bad += check("  a project without ratchets: every velocity and chance byte below 128, as firmware before wrote", ok);
-    {   /* a FUN7 image (its tracks without patches) as firmware before RATCH wrote it: x1 */
-        project_store_t old;
-        uint32_t sum, magic = PROJ_MAGIC_V7, size = PROJ_STORE_V7;
-        project_t fun7;
-        memcpy(&old, &packed, sizeof old);
-        memcpy(old.raw, &magic, 4); memcpy(old.raw + 4, &size, 4);
-        memset(old.raw + PROJ_STORE_V7 - 4u - PROJ_NAME_LEN, 0, PROJ_NAME_LEN);
-        sum = proj_hash(old.raw, PROJ_STORE_V7 - 4u); memcpy(old.raw + PROJ_STORE_V7 - 4u, &sum, 4);
-        ok = proj_import(&fun7, &old, PROJ_STORE_V7);
-        for (k = 0; ok && k < NTRK; k++)
-            for (i = 0; i < NSTEP; i++)
-                ok &= step_ratchet(&fun7.t[k].step[i]) == 1u;
-        bad += check("  FUN7 of before: every step x1", ok && fun7.t[0].step[1].flags == SF_ACCENT);
-    }
-    {   /* FUN6 (10-byte steps): only accent and slide come over, x1 */
-        project_v6_t v6;
-        memset(&v6, 0, sizeof v6);
-        v6.magic = PROJ_MAGIC_V6; v6.size = sizeof v6; v6.parts = NPART; v6.phys = PROJ_PHYS;
-        memcpy(v6.g, before.g, sizeof v6.g);
-        memset(&v6.chain, 0, sizeof v6.chain);
-        for (k = 0; k < NTRK; k++) {
-            for (i = 0; i < 69u; i++) v6.t[k].p[i] = TP[i < 61u ? i : i - 61u + P_E0].def;
-            v6.t[k].step[0] = (step10_t){{60}, 1, ST_NOTE, 0xFBu, 100, 0, 0};   /* (stray high bits) */
-        }
-        v6.sum = proj_hash(&v6, sizeof v6 - 4u);
-        bad += check("  FUN6: x1, accent and slide kept", proj_import(&after, &v6, sizeof v6) &&
-                     step_ratchet(&after.t[0].step[0]) == 1u && after.t[0].step[0].flags == (SF_ACCENT | SF_SLIDE));
-    }
     ui_power_on();                                   /* a real save and load */
     step_set_ratchet(&trk[1].step[7], 3);
     trk[1].step[7].time = ST_NOTE; trk[1].step[7].n = 1; trk[1].step[7].note[0] = 50;
@@ -223,12 +195,11 @@ static int projects(void)
     return bad;
 }
 
+/* MRC: a saved pattern (pattern.c, project.c's 9-byte steps) keeps the ratchets */
 static int presets(void)
 {
     int bad = 0;
-    up_rec_t r;
-    uint8_t a[400];
-    uint32_t slot, i, k, n;
+    uint32_t i;
     track_t *t;
     ui_power_on();
     t = &trk[0];
@@ -238,35 +209,25 @@ static int presets(void)
     step_set_ratchet(&t->step[2], 3);
     t->step[5].flags = SF_ACCENT;
     step_set_ratchet(&t->step[5], 4);
-    memset(&r, 0, sizeof r);
-    up_pat_from(&r, t->step);
+    pat_store(0, t, "RAT");
     track_defaults_steps(t);
-    load_pat16(t, r.note, r.flags);
-    bad += check("user preset note pattern: x3 and an accented x4 stored in its flags and loaded back",
-                 step_ratchet(&t->step[2]) == 3u && step_ratchet(&t->step[5]) == 4u && t->step[5].flags & SF_ACCENT &&
-                 step_ratchet(&t->step[0]) == 1u && r.flags[2] == 2u << SF_RATCH_SH);
-    k = 0;                                           /* UP_PUT: slot, engine, name, values, 16 x (note, flags) */
-    a[k++] = 3; a[k++] = (uint8_t)t->eng_req;
-    memcpy(a + k, "RAT", 4); k += 4;
-    for (i = 0; i < P_COUNT; i++) { a[k++] = (uint8_t)((t->p[i] + 8192) & 127); a[k++] = (uint8_t)((t->p[i] + 8192) >> 7); }
-    for (i = 0; i < 16u; i++) { a[k++] = r.note[i]; a[k++] = r.flags[i]; }
-    n = k;
-    memset(&r, 0, sizeof r);
-    bad += check("  UP_PUT keeps a pattern's ratchet", !up_parse(a, n, &r, &slot) && r.flags[2] == 2u << SF_RATCH_SH &&
-                 r.flags[5] == (SF_ACCENT | 3u << SF_RATCH_SH));
-    set_engine_of(t, ENGI_DRUM);                     /* a drum grid record: no room, x1 */
+    bad += check("a saved pattern: x3 and an accented x4 kept, loaded back", pat_get(0, t) && step_ratchet(&t->step[2]) == 3u &&
+                 step_ratchet(&t->step[5]) == 4u && t->step[5].flags & SF_ACCENT && step_ratchet(&t->step[0]) == 1u);
+    set_engine_of(t, ENGI_DRUM);
     t->engine = t->eng_req;
     track_defaults_steps(t);
     t->step[0] = (step_t){{0}, 0, ST_NOTE, 0, 100, 1u << DV_KICK};
     step_set_ratchet(&t->step[0], 2);
-    up_store(4, "GRID");
-    up_pat_load(t, 4);
-    bad += check("  a DRUM grid record loads its hits x1", up_grid(up_rec(4)) && t->step[0].hit == 1u << DV_KICK &&
-                 step_ratchet(&t->step[0]) == 1u);
+    pat_store(1, t, "GRID");
+    track_defaults_steps(t);
+    bad += check("  on the DRUM grid: its hits x2", pat_get(1, t) && t->step[0].hit == 1u << DV_KICK &&
+                 step_ratchet(&t->step[0]) == 2u);
     return bad;
 }
 
 /* pixels of colour c in card slot k (the cards' row) */
+/* a card's lit ink: THEME, MRC (the first palette): the card's own brand accent (ui_draw.c draw_column) */
+#define CARD_INK(k) (MRC_ON ? MRC_ACCENT[(k) % MRC_ACCENTS] : T_THEME)
 static uint32_t card_px(uint32_t k, uint16_t c)
 {
     uint32_t n = 0;
@@ -294,16 +255,15 @@ static int screens(void)
     uint32_t x, y;
     ui_power_on();
     t = TSEL;
-    go_auto_add(EV_RATCH, 0);                        /* (1.2: SEQ > AUTOMATION, + ADD RATCH: x2, its row) */
-    press(B_OCTUP);
-    turn(EN_K4, 1);
+    ev_sput(&t->step[0], EVK_RATCH, 3);
     ok = step_ratchet(&t->step[0]) == 3u && step_ratchet(&t->step[1]) == 1u;
-    turn(EN_K4, 100);
+    ev_sput(&t->step[0], EVK_RATCH, 4);
     ok &= step_ratchet(&t->step[0]) == 4u;
-    turn(EN_K4, -100);
-    bad += check("SEQ > AUTOMATION's RATCH row, KNOB 4: RATCH of its step, x1..x4", ok && step_ratchet(&t->step[0]) == 1u &&
+    ev_sput(&t->step[0], EVK_RATCH, 1);
+    bad += check("a step's RATCH, x1..x4, its own field only", ok && step_ratchet(&t->step[0]) == 1u &&
                  step_chance(&t->step[0]) == 100u);
-    {                                                /* RATCH dimmed where it does nothing: REST, TIE, empty */
+    {                                                /* RATCH dimmed where it does nothing: REST, TIE, empty (DETAIL's card 2) */
+        go_title("DETAIL"); ui.cursor = 0;
         uint32_t dim[4], thm[4], k;
         static const step_t kind[4] = {
             {{60}, 1, ST_NOTE, 0, 100}, {{0}, 0, ST_REST, 0, 0}, {{0}, 0, ST_TIE, 0, 0}, {{0}, 0, ST_NOTE, 0, 0}};
@@ -311,12 +271,12 @@ static int screens(void)
             t->step[0] = kind[k];
             step_set_ratchet(&t->step[0], 2);
             memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
-            dim[k] = card_px(3, T_DIM); thm[k] = card_px(3, T_THEME);
+            dim[k] = card_px(1, T_DIM); thm[k] = card_px(1, CARD_INK(1));
         }
         t->step[0] = kind[3]; t->step[0].hit = 1u;   /* a NOTE step of lane hits only: it plays */
         step_set_ratchet(&t->step[0], 2);
         memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
-        ok = card_px(3, T_DIM) == dim[0] && card_px(3, T_THEME) == thm[0];
+        ok = card_px(1, T_DIM) == dim[0] && card_px(1, CARD_INK(1)) == thm[0];
         for (k = 1; k < 4u; k++)
             ok &= dim[k] > dim[0] && thm[k] < thm[0];
         bad += check("  RATCH shows dimmed on a REST, a TIE or an empty step (a note or a hit: not)", ok);

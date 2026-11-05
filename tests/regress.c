@@ -269,6 +269,7 @@ static void job_song(const job_t *j)
     host_preset(t2, TRK_DEF[1][0], TRK_DEF[1][1]);
     host_preset(t3, 3, 0);
     host_drums(td);
+    t1->p[P_SLEN] = td->p[P_SLEN] = 16;             /* (MRC: LEN defaults to 64; the song's 16-step lines loop) */
     for (i = 0; i < 16u; i++) {
         uint8_t n = ACID[i];
         put_step(t1, i, n ? 1u : 0u, &n, n ? ST_NOTE : ST_REST, ACIDF[i]);

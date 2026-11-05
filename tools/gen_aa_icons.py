@@ -18,7 +18,7 @@ Output: per size S in --sizes
   AI<S>_OFF     each cell's byte offset in AI<S>_DATA
   AI<S>_INK     each cell's ink box (the UI centres an icon by its ink: src/icons.c icon_ink)
   AI<S>_IDX[ICON_COUNT]  cell number of every icon at that size, 0xFF = not rasterised at that size
-  (12 px: all legacy icons + SMALL_EXTRA; 16 px: only the --big set; 24 px: HUGE_DEFAULT)
+  (the smallest size: all legacy icons + SMALL_EXTRA; the largest: HUGE_DEFAULT; the rest: the --big set)
 --list prints every Fukiai glyph name and its codepoint (what is available).
 --report prints the mapping, the unmapped legacy names and the byte cost.
 """
@@ -113,7 +113,9 @@ NOT_DRAWN = ["tape"]
 
 # the 24 px set: the header battery (Fukiai's battery is a wide, short glyph: at 16 px its body was 12 x 6)
 # (up to 1.1.5 also the FX map's effect cells; 1.2's map names the 16 keys' effects instead, ui_layer.c layer_fx)
-HUGE_DEFAULT = ["x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "x_usb"]   # (+ the USB-C plug: as flat)
+# MRC: the battery and USB icons went with the header's battery; the one icon drawn big now is the
+# metronome, on the tempo screen (ui_draw.c draw_bpm_full), and it is drawn at 40 px
+HUGE_DEFAULT = ["tempo"]
 
 # the 16 px set: header, footer, dialogs and menu rows (everything else only exists at 12 px)
 # (1.0.5: the MENU rows lost their icons, the tabs carry them)
@@ -216,7 +218,7 @@ def main():
     ap.add_argument("out", nargs="?")
     ap.add_argument("--font", default=str(ROOT / "web" / "fukiai.ttf"))
     ap.add_argument("--json", default=str(ROOT / "assets" / "icons.json"), help="legacy icon names (order = enum)")
-    ap.add_argument("--sizes", default="12,16,24")
+    ap.add_argument("--sizes", default="12,16,40")
     ap.add_argument("--big", default=",".join(BIG_DEFAULT))
     ap.add_argument("--gamma", type=float, default=1.0)
     ap.add_argument("--prefix", default="ICON_", help="enum prefix (the preview uses XI_ next to the firmware's ICON_)")
@@ -255,7 +257,7 @@ def main():
     cells = {}
     for s in sizes:
         subset = ([n for n in names if (n in legacy and n not in NOT_DRAWN) or n in SMALL_EXTRA] if s == min(sizes) else
-                  [n for n in names if n in HUGE_DEFAULT] if s == 24 else [n for n in names if n in big])
+                  [n for n in names if n in HUGE_DEFAULT] if s == max(sizes) else [n for n in names if n in big])
         cells[s] = []
         for n in subset:
             b, ink = ar.raster_icon(font if glyph_of[n] in mended else a.font, s, cps[glyph_of[n]], a.gamma)

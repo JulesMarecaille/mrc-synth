@@ -355,7 +355,7 @@ static void edit_load(uint32_t e, int32_t step)
         if (e == TSEL->eng_req % NENGINES)
             return;                                     /* its engine already: the sound stays */
         select_engine(e);
-        preset_hinted();
+        ui.force = 1;
     } else {
         eng_list_step(step);
     }
@@ -547,8 +547,8 @@ static void fx_default(void)
  * no undo copy, not recorded; OCT- puts back what they changed since the layer opened (eqa_put_back). A new engine's
  * actions: a table and its row in EQA, and what OCT- puts back in eqa_put_back.
  *   DRUM  1..8 MUTE of the lanes KICK .. BELL (eng_drum.c drum_mute; the cells the kit's names), latched: lit =
- *         sounding, dark = muted (as GLO's track mutes); the cell of a muted lane as a muted track's (KEY) */
-enum { EQ_SHOW_SEL, EQ_SHOW_MUTE };                /* the cell: on = the selection's fill; on = idle, off = KEY */
+ *         sounding, dark = muted (as GLO's track mutes); the cell of a sounding lane in the accent, a muted one DIM */
+enum { EQ_SHOW_SEL, EQ_SHOW_MUTE };                /* the cell: on = the selection's fill; on = accent, off = DIM */
 typedef struct {
     uint8_t kind, show, arg;                       /* LK_HOLD / LK_SET, EQ_SHOW_*, the handler's argument */
     const char *(*name)(const track_t *t, uint32_t arg);   /* the cell's (2 .. 3 characters) */
@@ -928,7 +928,7 @@ static uint16_t lc_fill(uint32_t st, uint16_t *ink)
  * across the gap's corner, so they meet in a grid. Cells are 4 px apart from x 6, y 4. Returns the fill */
 static uint16_t lc_box(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t fill)
 {
-    if (ux.style) {
+    if (ux.style == ST_LINE) {
         if (fill == T_RAISE)
             fill = T_SURF;
         if (x > 7)                                       /* (not the first column: x 6) */
@@ -998,7 +998,8 @@ static void layer_fx(void)
     }
     for (e = 0; e < NTRK; e++) {                        /* the mutes of the black keys 1..4 */
         bnote(n, e);
-        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0, (held >> (PF_M1 + e)) & 1u ? LS_MUTE : LS_OFF, 0);
+        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0,   /* (MRC: a sounding track in the accent, a muted one dim) */
+              (held >> (PF_M1 + e)) & 1u || !glo_sounding(e) ? LS_DIM : LS_HELD, 0);
     }
 }
 static void layer_glo(void)
@@ -1019,7 +1020,8 @@ static void layer_glo(void)
     lcell(LC_X(3), 50, LC_H, n, ICON_TEMPO, 0, "TAP", song.g[G_CLOCK] ? LS_DIM : LS_OFF, 0);
     for (e = 0; e < NTRK; e++) {                        /* the black keys 1..4: MUTE, latched */
         bnote(n, e);
-        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0, trk[e].p[P_MUTE] ? LS_MUTE : LS_OFF, 0);
+        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0,   /* (MRC: a sounding track in the accent, a muted one dim) */
+              glo_sounding(e) ? LS_HELD : LS_DIM, 0);          /* (a track soloed out is dim too) */
     }
 }
 static void layer_scl(void)                             /* KNOB 2's scales, 4 x 4, the one now selected */
@@ -1034,14 +1036,15 @@ static void layer_scl(void)                             /* KNOB 2's scales, 4 x 
     }
 }
 /* 1.4.1: the engine's quick actions (black keys 1..n) in a row of n cells under the engines, 18 px high, 4 px apart
- * (8: 25 px, as SEQ TOOLS' lanes; 11: 17 px): the name; SET EQ_SHOW_MUTE: off a muted track's KEY; a HOLD one's
+ * (8: 25 px, as SEQ TOOLS' lanes; 11: 17 px): the name; SET EQ_SHOW_MUTE: on the accent, off DIM; a HOLD one's
  * corner triangle */
 static void eqa_row(uint32_t n)
 {
     uint32_t i, w = (228u - 4u * (n - 1u)) / n;
     for (i = 0; i < n; i++) {
         const eqa_t *a = eqa_of(TSEL, i);
-        uint32_t on = a->on(TSEL, a->arg) != 0u, st = a->show == EQ_SHOW_MUTE ? (on ? LS_OFF : LS_MUTE)
+        uint32_t on = a->on(TSEL, a->arg) != 0u, st = a->show == EQ_SHOW_MUTE ? (on ? LS_HELD : LS_DIM)   /* (MRC: as
+                                                                                        * the FX layer's track mutes) */
                     : on ? (a->kind == LK_HOLD ? LS_HELD : LS_SEL) : LS_OFF;
         int32_t x = 6 + (int32_t)((w + 4u) * i), j;
         uint16_t ink, fill = lc_box(x, 100, (int32_t)w, 18, lc_fill(st, &ink));
@@ -1259,8 +1262,8 @@ static void draw_layer(void)
                eqa_sig() * 2654435761u;
     if (ui.force || sig != ui.layer_sig) {
         ui.layer_sig = sig;
-        cv_begin(240, H_GRAPH, T_BG);
-        cv_rrect(3, 0, 234, H_GRAPH, 5, T_SURF, T_BG);
+        cv_begin(240, OVL_H_GRAPH, T_BG);
+        cv_rrect(3, 0, 234, OVL_H_GRAPH, 5, T_SURF, T_BG);
         cv_bg = T_SURF;
         if (l == LAYER_FX)
             layer_fx();
@@ -1277,14 +1280,14 @@ static void draw_layer(void)
         cv_blit(0, Y_GRAPH);
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
-        cv_begin(240, H_FOOT, T_BG);
+        cv_begin(240, OVL_H_FOOT, T_BG);
         const khint_t *ft = l == LAYER_FX && fx_key_held() ? FX_KEY_FOOT : l == LAYER_FX && perf_latch_on ? FX_LATCH_FOOT :
                             l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : l == LAYER_SEQ && eu.on ? EU_FOOT :
                             LAYERS[l].foot;
         int h = help_on() && help_row(l == LAYER_SEQ && eu.on ? H_EUCLID : HELP_LAYER[l], 21);   /* 1.5, HELP ON: a
                                                          * second row, what this one does not say */
         cv_key_row(8, 232, h ? 2 : 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
-        cv_blit(0, Y_FOOT);
+        cv_blit(0, OVL_Y_FOOT);
         ui.foot_sig = 0;
     }
 }

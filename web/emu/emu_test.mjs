@@ -18,6 +18,7 @@ const bytes = fs.readFileSync(wasmPath);
 const B = { FX: 0, SCL: 1, ENV: 2, LFO: 3, EDIT: 4, GLO: 5, HOME: 6, SAVE: 7, ARP: 8, SEQ: 9, PLAY: 10, REC: 11, OCTDN: 12, OCTUP: 13 };
 const EN = { SELECT: 0, ALGO: 1, PRESETS: 2, K1: 3, K2: 4, K3: 5, K4: 6 };
 let fails = 0;
+const BOOT_MS = 3500;                       // MRC: the splash stays 3.25 s (ui_draw.c SPL_MS; upstream 0.4 s)
 const check = (what, ok) => { console.log(`emu: ${what.padEnd(76)} ${ok ? "ok" : "FAIL"}`); if (!ok) fails++; };
 
 async function device(saved) {
@@ -55,7 +56,6 @@ const colours = (fb) => new Set(fb).size;
 // ---- boot, keys, screen, LEDs
 const a = await device(null);
 a.render(200);
-const splash = colours(a.screen());
 { // the power-on LED sweep (bsp/boards/fm1/fm1_led_anim.h) under the splash: at 200 ms its head on the middle of the keyboard, the
   // keys it passed glowing (DIM HI), the ones ahead dark, the buttons not yet; the UI's LEDs untouched until it ends
   const p = a.ex.web_anim_levels(), lv = p ? Array.from(new Uint8Array(a.mem.buffer, p, 41)) : [];
@@ -67,6 +67,8 @@ const splash = colours(a.screen());
 }
 a.render(800);
 check("  over by 1 s (~0.70 s)", a.ex.web_anim_levels() === 0);
+const splash = colours(a.screen());                           // (MRC: at 1 s, its letters in; at 200 ms still blank)
+a.render(BOOT_MS - 1000);
 const home = a.screen();
 check(`boots: the splash, then HOME (${colours(home)} colours), the HOME LED lit`,
       splash > 1 && colours(home) > 4 && (a.ex.web_lit_buttons() >> B.HOME & 1) === 1);
@@ -151,8 +153,8 @@ check("a fresh instance with the kept sectors has it; one without does not",
         ["bin", "twos", "sign"].every((m) => k(MASTER_CC, 0, m).master === 0 && k(MASTER_CC, 127, m).master === 1023) &&
         k(20, 65, "bin").role === EN.SELECT && k(26, 65, "bin").role === EN.K4 && k(19, 65, "bin") === null);
   const t = await device(null), u = await device(null);             // u: left alone
-  t.render(1200);
-  u.render(1200);
+  t.render(BOOT_MS);
+  u.render(BOOT_MS);
   t.render(40);
   t.turn(EN.PRESETS, 3);
   t.render(300);
@@ -160,7 +162,7 @@ check("a fresh instance with the kept sectors has it; one without does not",
   const ts = t.screen(), us = u.screen();
   for (const [mode, vs] of [["abs", [64, 65, 66, 67]], ["bin", [65, 65, 65]], ["twos", [1, 1, 1]], ["sign", [1, 1, 1]]]) {
     const m = await device(null), knob = [];                   // a controller's knob: three detents
-    m.render(1200);
+    m.render(BOOT_MS);
     for (const v of vs) {
       const r = midiKnob(knob, cc, v, mode);
       if (r.n) m.ex.web_enc(r.role, r.n);
@@ -177,7 +179,7 @@ check("a fresh instance with the kept sectors has it; one without does not",
 // ---- deterministic: the same gestures, the same samples
 async function song() {
   const d = await device(null);
-  d.render(500);
+  d.render(BOOT_MS);                                          // (web/emu/native_check.c the same)
   d.ex.web_test_heavy();
   d.tap(B.PLAY);
   d.rec = true;

@@ -105,11 +105,6 @@ static int leaves(void)
     ok = ui.bank == 0u;
     bad += check("the transport stopped: the playhead does not move the roll", ok);
     t = pattern(40, 0, 0);
-    go_page(GR_EVENTS);
-    at(t, 36);
-    ok = ui.bank == 0u;
-    bad += check("SEQ > AUTOMATION (not the roll): the bank stays", ok);
-    t = pattern(40, 0, 0);
     ui.home = 1;
     at(t, 36);
     ok = ui.bank == 0u;

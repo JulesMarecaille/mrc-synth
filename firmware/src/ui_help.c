@@ -38,20 +38,19 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"OPERATOR", H_FMOP},
     {"OP ENV", H_FMOP},
     {"OPERATOR 2", H_FMOP},
-    {"VOICE", "[K1]POLY, MONO[K2]GLIDE"},
-    {"VOICE 2", "[K2]DETUNE[K3]PAN[K4]MUTE"},
+    {"VOICE", "[K1]POLY, MONO[K2]DETUNE[K3]PAN"},
+    {"VOICE 2", "[K2]GLIDE"},
     {"VOICE 3", "[K1]STEREO SPREAD[EDIT]EDIT 1"},
-    {"SONG", "[K1]SECTION[KEYS]A-D[PLAY]SONG"},
-    {"USER", "[K1]SLOT[OCT+]SAVE[SAVE]PRESETS"},
+    {"SONG", "[K1]SECTION[K3]PATTERN[PLAY]SONG"},   /* (MRC: KNOB 3 the pattern; upstream the keys A-D) */
+    {"USER", "[K1]SLOT[OCT+]SAVE[SAVE]PATTERN"},   /* (MRC: PRESETS, PATTERNS, CLEAR are GLO's) */
     {"PRESETS", "[K2]ENGINE[K3]FAV[K4]LIST"},
-    {"PHRASES", "[K1]PHRASE[OCT+]LOAD[SAVE]PROJECT"},
-    {"PROJECT", "[K2]ERASE[K4]SAVE[EDIT]NAME"},   /* (1.5.5, #199: ERASE) */
-    {"TOOLS", "[K1]CLEAR[K2]INIT, CLEAN[OCT+]DO"},   /* (1.5.5, #190: KNOB 2 on, CLEAN INIT) */
+    {"PATTERNS", "[K1]PATTERN[OCT+]LOAD[K4]ERASE"},   /* (MRC: KNOB 4 ERASE) */
+    {"PATTERN", "[K1]SLOT[OCT+]SAVE[EDIT]NAME"},   /* (MRC; upstream PROJECT) */
+    {"CLEAR", "[K1]CLEAR[K2]INIT, CLEAN[OCT+]DO"},   /* (1.5.5, #190: KNOB 2 on, CLEAN INIT) */
     {"ARP", "[K1]MODE[KEYS]CHORD[ARP]ARP 2"},
     {"ARP 2", "[K3]LATCH[K4]ORDER[ARP]ARP"},
     {"STEP", "[KEYS]WRITE[K1]STEP[SEQ]RATCH"},   /* (1.5.1: SEQ to DETAIL) */
     {"DETAIL", "[PRESETS]STEP[K1]CHANCE, 1:4, FILL"},   /* (1.5.5: the conditions past 100 %) */
-    {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
     {"MIXER", "[K4]MUTE[ALGO]TRACK[HOME]CLOCK"},
     {"CLOCK", "[SELECT]TEMPO[GLO]HOLD: TAP"},
 };

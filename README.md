@@ -1,49 +1,57 @@
-# Felucca
+# MRC Synth
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 
 ## Overview
 
-Felucca is an open-source synthesizer firmware project that began as custom firmware for the M-VAVE FM-1.
+MRC Synth is custom synthesizer firmware for the M-VAVE FM-1, version 1.0.0. It is a modified version of
+[Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita ([Hügelton Instruments](https://hugelton.com)):
+the sound engines and the sequencer are Felucca's, with MRC's own look (brand colours, boot screen, a drawing per
+engine and effect), a simpler project model (one autosaved project, 24 saved patterns) and a reworked page layout.
+The full list of changes is in [CHANGES.md](CHANGES.md).
 
-Originally developed for a single instrument, Felucca is evolving toward a multi-platform architecture, separating its synthesis engines from hardware-specific implementations. The aim is to make its instruments and sound engines adaptable to different hardware platforms without committing to specific ports or release schedules.
+This is not an official Felucca release: please report MRC Synth problems here, not to the Felucca project.
 
-### M-VAVE FM-1
+Installing custom firmware on the FM-1 is at your own risk. M-VAVE's own updater takes the device back to its
+factory firmware.
 
-The FM-1 firmware is currently at version 1.7.0. Connect the FM-1 to a computer by USB, open the
-[web installer](https://hugelton.github.io/Felucca/) in Chrome or Edge and press Install; no extra hardware is needed.
-Installing is at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
-[Try it in your browser](https://hugelton.github.io/Felucca/webapp/try/), no FM-1 needed.
+## Try it in your browser
 
-- Install: [web installer](https://hugelton.github.io/Felucca/)
-- Edit: [web editor](https://hugelton.github.io/Felucca/webapp/editor/) ([Felucca-WebApp](https://github.com/hugelton/Felucca-WebApp))
-- Read: the manual and the release notes are in the [wiki](https://github.com/hugelton/Felucca/wiki/Home)
-- Build: [BUILDING.md](BUILDING.md)
-- Related: [Felucca-Engines](https://github.com/hugelton/Felucca-Engines) (the ANALOG, LOFI, TRIO, WHEEL, NOISE and PHASE engines, MIT; still maintained) ·
-  [felucca-bsp](https://github.com/hugelton/felucca-bsp) (the FM-1 hardware layer, MPL-2.0; Felucca builds on it from 1.7.0)
+The whole firmware runs in a browser emulator, no FM-1 needed. With Python 3 (+ Pillow, fontTools) and
+[Emscripten](https://emscripten.org) installed:
 
-## Platform Support
+```sh
+dev/run.sh            # Git Bash, from the repository
+```
 
-| Platform | Status | Notes |
-| --- | --- | --- |
-| M-VAVE FM-1 | Supported | The original platform; firmware and web installer available. |
-| Other hardware | Not yet supported | Ports are welcome! |
+```
+dev\run.cmd           # PowerShell or cmd
+```
 
-Felucca began on the FM-1, but it is not intended to stay there. Contributions and ports to other platforms are very welcome. If you are interested in bringing Felucca to another device, feel free to open an issue or pull request to discuss it. No specific future ports or release dates are promised.
+then open <http://localhost:8790/>. USB, TRS MIDI in and the user sample slots are not emulated.
 
-## AI disclaimer
+## Building for the FM-1
 
-Felucca is developed with the assistance of AI coding agents (code, tests, documentation, translation, maintenance). The
-design, features, sound design and direction are the maintainer's or the community's, and no generative AI is used for music,
-icons or artwork. See [On AI-Assisted Development and Responsibility](https://github.com/hugelton/Felucca/discussions/166).
+A `.fwsc` for the device needs the JieLi toolchain and AC79 SDK; see [BUILDING.md](BUILDING.md).
+Clone with `--recurse-submodules`: the engines (`firmware/engines`) and the hardware layer (`firmware/bsp`) are
+git submodules.
 
 ## Credits and licence
 
-Free software: [GPL-3.0-only](LICENSE); the Hügelton Sample Pack is CC0 1.0; the engines in `firmware/engines` are MIT
+Free software: [GPL-3.0-only](LICENSE), as Felucca. The engines in `firmware/engines` are MIT
 ([Felucca-Engines](https://github.com/hugelton/Felucca-Engines)); the hardware layer in `firmware/bsp` is MPL-2.0
-([felucca-bsp](https://github.com/hugelton/felucca-bsp)); the bundled fonts and ported DSP keep their own licences
-([LICENSES/](LICENSES/), [LICENSING.md](LICENSING.md)). Thanks to everyone whose work and contributions are in it: [CREDITS.md](CREDITS.md).
+([felucca-bsp](https://github.com/hugelton/felucca-bsp)); the Hügelton Sample Pack is CC0 1.0; the bundled fonts and
+ported DSP keep their own licences ([LICENSES/](LICENSES/), [LICENSING.md](LICENSING.md)). Thanks to Leo Kuroshita
+and everyone whose work is in Felucca: [CREDITS.md](CREDITS.md).
 
-M-VAVE and FM-1 are trademarks of their respective owners. Felucca is not affiliated with or endorsed by them.
+Anyone who distributes a build of MRC Synth must also offer its complete source, submodules included.
 
-Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+Developed with the assistance of AI coding agents.
+
+M-VAVE and FM-1 are trademarks of their respective owners. MRC Synth is not affiliated with or endorsed by M-VAVE
+or Hügelton Instruments.
+
+MRC Synth modifications Copyright (C) 2026 Jules Marécaille
+Felucca Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+
+Source: <https://github.com/JulesMarecaille/mrc-synth>

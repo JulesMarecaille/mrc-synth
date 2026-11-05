@@ -81,7 +81,6 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
-    memset(proj_slot, 0, sizeof proj_slot);
     memset(up_bank, 0, sizeof up_bank);
     memset(&persist_saved, 0, sizeof persist_saved);
     memset(&settings, 0, sizeof settings);
@@ -98,6 +97,7 @@ static void reset(void)
     fail_after = -1;
     up_gen = erases = 0;
     irq_start_race = irq_races = 0;
+    pat_boot();                                   /* (MRC: no saved pattern) */
 }
 
 /* ---- 1.0.3: the retired FM6 bank's patches move into the user presets on the first boot (up_fm6.c) ---- */
@@ -223,8 +223,9 @@ static int mig_test(void)
     return bad;
 }
 
-/* ---- 1.2, Discussion #130: the autosave (project.c): written only when the music changed, stopped and idle 10 s, at
- * most one a minute; restored at power-on (RESTORE LAST ON, a clean boot); a damaged one ignored ---- */
+/* ---- 1.2, Discussion #130: the autosave (project.c): written only when the music changed, stopped and idle 3 s (MRC;
+ * upstream 10 s), at most one a minute; restored at power-on (a clean boot; MRC: always, no RESTORE LAST); a damaged one
+ * ignored; MRC: SAVE + OCT+ writes it at once (save_now_ui) ---- */
 static void as_run(uint32_t ms)                          /* the main loop for ms (autosave_poll checks every 250 ms) */
 {
     uint32_t end = fm1_ms + ms;
@@ -270,26 +271,26 @@ static int autosave_test(void)
     as_run(120000u);
     bad += check("autosave: power-on with none: nothing restored; 2 min unchanged: no write", ok && !as.writes && !as_erases);
     as_edit(0);
-    as_run(9000u);
+    as_run(2000u);
     ok = !as.writes;
     as_run(1500u);
-    bad += check("autosave: a change: no write within 10 s, one once idle 10 s (one erase)",
+    bad += check("autosave: a change: no write within 3 s, one once idle 3 s (one erase)",
                  ok && as.writes == 1u && as_erases == 1u && st_load(OBJ_AUTOSAVE, &raw, sizeof raw) == (int)sizeof raw);
     as_run(600000u);
     bad += check("autosave: 10 min unchanged after it: no more writes", as.writes == 1u && as_erases == 1u);
-    song.g[G_SLOT] = 3;                                  /* (the PROJECT page's pick, the selected track: not the music) */
+    song.g[G_SLOT] = 3;                                  /* (upstream's PROJECT pick, the selected track: not the music) */
     song.sel = 2;
     as_run(120000u);
-    bad += check("autosave: the selected track / PROJECT's slot pick alone: no write", as.writes == 1u);
+    bad += check("autosave: the selected track / G_SLOT alone: no write", as.writes == 1u);
     song.g[G_BPM] = 133;
     song.playing = 1;
     as_run(300000u);
     ok = as.writes == 1u;
     song.playing = 0;
-    as_run(9000u);
+    as_run(2000u);
     ok &= as.writes == 1u;
     as_run(1500u);
-    bad += check("autosave: changed while playing: no write until stopped and idle 10 s, then one", ok && as.writes == 2u);
+    bad += check("autosave: changed while playing: no write until stopped and idle 3 s, then one", ok && as.writes == 2u);
     as_edit(1);
     fm1_in.notes = 1u << 7;                              /* a key held (playing the sound, stopped) */
     as_run(60000u);
@@ -299,13 +300,13 @@ static int autosave_test(void)
     as_run(20000u);
     ok &= as.writes == 2u;
     trk[1].v[0].active = 0;
-    as_run(9000u);
+    as_run(2000u);
     ok &= as.writes == 2u;
     as_run(1500u);
-    bad += check("autosave: a key held, a voice sounding: no write (an erase stops the audio); after, idle 10 s: one",
+    bad += check("autosave: a key held, a voice sounding: no write (an erase stops the audio); after, idle 3 s: one",
                  ok && as.writes == 3u);
     as_run(60000u);
-    as_edit(2);                                          /* written 10 s on; then edits 15 s apart: a minute's gap */
+    as_edit(2);                                          /* written 3 s on; then edits 15 s apart: a minute's gap */
     as_run(11000u);
     w = as.writes;
     as_edit(3);
@@ -326,6 +327,21 @@ static int autosave_test(void)
     ok = as.writes == w;
     as_run(10500u);
     bad += check("autosave: none during an editor transfer (autosave_hold), one after", ok && as.writes == w + 1u);
+    as_edit(9);                                          /* MRC: SAVE + OCT+, inside the gap and before 3 s idle */
+    as_run(500u);
+    w = as.writes;
+    song.playing = 1;
+    save_now_ui();
+    ok = as.writes == w && str_eq(ui.msg, "STOP TO SAVE") && !ui.saved_t && autosave_dirty();
+    song.playing = 0;
+    save_now_ui();
+    bad += check("autosave: SAVE + OCT+ writes at once (no idle wait, no gap), SAVED; refused while playing",
+                 ok && as.writes == w + 1u && ui.saved_t && !autosave_dirty());
+    ui.saved_t = 0;
+    w = as.writes;
+    save_now_ui();
+    bad += check("  .. again, nothing changed: SAVED, nothing written", as.writes == w && ui.saved_t);
+    ui.saved_t = 0;
     /* power-on: restored */
     as_edit(6);
     song.g[G_BPM] = 97;
@@ -344,13 +360,6 @@ static int autosave_test(void)
     ok = autosave_boot(0) == 0 && song.g[G_BPM] != 97;
     as_run(60000u);
     bad += check("autosave: after a crash / hang / failed boot: not restored, nothing written", ok && as_erases == b0);
-    as_power_on();
-    ui_prefs |= PREF_RESTORE_OFF;
-    ok = autosave_boot(1) == 0 && song.g[G_BPM] != 97;
-    as_edit(7);
-    as_run(300000u);
-    bad += check("autosave: RESTORE LAST OFF: none restored, none written", ok && !as.writes && as_erases == b0);
-    ui_prefs &= (uint8_t)~PREF_RESTORE_OFF;
     {   /* a damaged copy: the other one (A/B); both damaged: none */
         st_hdr_t h;
         int cur, other;
@@ -427,8 +436,6 @@ int main(void)
     int bad = 0, ok;
     uint32_t before;
     persist_t p;
-    project_store_t old, got;
-    project_v5_t v5;
     up_bank_t bank;
     up_rec_t r;
     reset();
@@ -543,131 +550,67 @@ int main(void)
     bad += check("settings retry succeeds after 1000 ms", !persist_pending && erases == before + 1u &&
                   st_load(OBJ_SETTINGS, &p, sizeof p) == (int)sizeof p && p.palette == palette_to_stored(1));
 
-    reset();
+    reset();                                         /* MRC: the saved patterns (pattern.c), 4 banks of 6, A/B each */
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
-    project_save(0);
-    old = proj_slot[0];
+    ok = pat_store(0, &trk[0], "A") == 0;
     trk[0].step[0].note[0] = 72;
     fail_after = 1;
-    project_save(0);
+    ok &= pat_store(0, &trk[0], "A") == 2;
     fail_after = -1;
-    bad += check("failed project save keeps RAM and old flash", !strcmp(ui.msg, "SAVE ERROR") &&
-                  !memcmp(&proj_slot[0], &old, sizeof old) && st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got &&
-                  !memcmp(&got, &old, sizeof got));
-    project_save(0);
-    bad += check("successful project save publishes new RAM", !strcmp(ui.msg, "SAVED") &&
-                  proj_import(&proj_scratch, &proj_slot[0], sizeof proj_slot[0]) &&
-                  proj_scratch.t[0].step[0].note[0] == 72u && proj_ok(&proj_scratch));
+    pat_bank_reload(0);
+    bad += check("failed pattern save: the pattern as it was (mirror and flash)", ok && pat_used(0) && pat_get(0, &trk[1]) &&
+                 trk[1].step[0].note[0] == 60u);
+    bad += check("successful pattern save: flash has the new steps", pat_store(0, &trk[0], "A") == 0 &&
+                 (pat_bank_reload(0), pat_get(0, &trk[1])) && trk[1].step[0].note[0] == 72u);
     before = erases;
     transport_req = 1;
-    project_save(1);
-    bad += check("pending PLAY: project save leaves slot and flash", !project_used(1) && erases == before &&
-                  !strcmp(ui.msg, "STOP TO SAVE"));
+    bad += check("pending PLAY: pattern save leaves slot and flash", pat_store(1, &trk[0], "B") == 1 && !pat_used(1) &&
+                 erases == before);
     transport_req = 0;
     erase_error = 1;
-    project_save(2);
-    bad += check("failed first project save leaves slot empty", !project_used(2));
+    bad += check("failed first pattern save (another bank) leaves the slot empty", pat_store(7, &trk[0], "C") == 2 &&
+                 !pat_used(7));
     erase_error = 0;
-    {   /* names: a project's through flash; a failed rename keeps the old one in RAM and flash */
-        char n[16];
-        project_store_t keep;
-        step_t st0 = trk[0].step[0];
-        project_save_as(0, "LOFI JAM");
-        memset(proj_slot[0].raw, 0, 8);                       /* (the RAM copy lost: read it back from flash) */
-        proj_fetch(0);
-        bad += check("a project's name goes to flash and comes back", project_name(0, n) && !strcmp(n, "LOFI JAM") &&
-                      !strcmp(proj_name, "LOFI JAM"));
-        keep = proj_slot[0];
+    {   /* names: a failed rename keeps the old one in the mirror and flash */
         fail_after = 1;
-        bad += check("failed project rename: SAVE ERROR, the slot and flash as they were",
-                      project_rename(0, "DUB") == 2 && !strcmp(ui.msg, "SAVE ERROR") && !memcmp(&proj_slot[0], &keep, sizeof keep) &&
-                      st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &keep, sizeof got));
+        ok = pat_rename(0, "DUB") == 2 && str_eq(pat_info(0)->name, "A");
         fail_after = -1;
+        pat_bank_reload(0);
+        bad += check("failed pattern rename: the name as it was (mirror and flash)", ok && str_eq(pat_info(0)->name, "A"));
         before = erases;
         transport_req = 1;
-        bad += check("pending PLAY: no rename, no erase", project_rename(0, "DUB") == 1 && erases == before &&
-                      !strcmp(ui.msg, "STOP TO SAVE"));
+        bad += check("pending PLAY: no rename, no erase", pat_rename(0, "DUB") == 1 && pat_erase(0) == 1 && erases == before &&
+                     pat_used(0));
         transport_req = 0;
-        bad += check("project rename: flash has the new name, the music as it was", project_rename(0, "DUB") == 0 &&
-                      !strcmp(ui.msg, "RENAMED") && (memset(proj_slot[0].raw, 0, 8), proj_fetch(0), project_name(0, n)) &&
-                      !strcmp(n, "DUB") && proj_scratch.t[0].step[0].note[0] == st0.note[0]);
+        bad += check("pattern rename: flash has the new name, the steps as they were", pat_rename(0, "DUB") == 0 &&
+                     (pat_bank_reload(0), str_eq(pat_info(0)->name, "DUB")) && pat_get(0, &trk[1]) && trk[1].step[0].note[0] == 72u);
     }
-    {   /* 1.5.5 (#199): SAVE > PROJECT ERASE: an empty record committed as a save is (A/B, the record last) */
-        project_store_t keep = proj_slot[0];
+    {   /* erase: the bank written without it (A/B, the record last) */
         int ok2;
+        ok2 = pat_store(1, &trk[0], "KEEP") == 0;
         fail_after = 0;                                        /* (the commit record's write fails: a power cut) */
-        ok2 = project_erase(0) == 2 && !strcmp(ui.msg, "ERASE ERROR") && !memcmp(&proj_slot[0], &keep, sizeof keep) &&
-              st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &keep, sizeof got);
+        ok2 &= pat_erase(0) == 2;
         fail_after = -1;
-        bad += check("failed project erase (cut before its record): ERASE ERROR, the project in RAM and flash", ok2);
-        before = erases;
-        transport_req = 1;
-        ok2 = project_erase(0) == 1 && erases == before && !strcmp(ui.msg, "STOP TO ERASE") && project_used(0);
-        transport_req = 0;
-        ok2 &= project_erase(3) == 1 && erases == before && !strcmp(ui.msg, "EMPTY SLOT");
-        bad += check("project erase refused while playing and on an empty slot (no flash erase)", ok2);
-        (void)project_save(1);
-        before = erases;
-        proj_cur = 0;
-        pat_from[0] = 1; pat_from[1] = 2;
-        ok2 = project_erase(0) == 0 && !strcmp(ui.msg, "PROJECT A ERASED") && !project_used(0) && erases == before + 1u &&
-              st_load(OBJ_PROJECT0, &got, sizeof got) == 0 && proj_cur == PROJ_NO_SLOT && !pat_from[0] && pat_from[1] == 2u;
-        proj_fetch(0);
-        ok2 &= !project_used(0) && project_used(1);           /* (read back from flash: empty; the next slot kept) */
-        bad += check("project erase: the slot empty in RAM and flash (no older copy comes back), the others kept", ok2);
-        bad += check("an erased slot takes a new save", project_save(0) == 0 && project_used(0) &&
-                      (memset(proj_slot[0].raw, 0, 8), proj_fetch(0), project_used(0)));
+        pat_bank_reload(0);
+        bad += check("failed pattern erase (cut before its record): the pattern in the mirror and flash", ok2 && pat_used(0));
+        bad += check("pattern erase refused on an empty slot (no flash erase)", (before = erases, pat_erase(5) == 1) &&
+                     erases == before);
+        ok2 = pat_erase(0) == 0 && !pat_used(0);
+        pat_bank_reload(0);
+        bad += check("pattern erase: the slot empty in the mirror and flash (no older copy comes back), the others kept",
+                     ok2 && !pat_used(0) && pat_used(1));
+        bad += check("an erased slot takes a new save", pat_store(0, &trk[0], "NEW") == 0 && (pat_bank_reload(0), pat_used(0)));
     }
-    {   /* FUN7 itself refuses a step outside its fields: a damaged slot is empty, the tracks stay */
-        step_t keep = trk[0].step[0];
-        old = proj_slot[0];
-        proj_slot[0].raw[68 + P_COUNT + 2 + 4] = 7;               /* track 1 step 1: n = 7 */
-        bad += check("damaged FUN7 slot (hash ok, n > 4) is refused", (memcpy(proj_slot[0].raw + PROJ_STORE_SIZE - 4,
-                      &(uint32_t){proj_hash(proj_slot[0].raw, PROJ_STORE_SIZE - 4)}, 4), !project_used(0)));
-        st_save(OBJ_PROJECT0, &proj_slot[0], sizeof proj_slot[0]);
-        ui.msg[0] = 0;
-        project_load(0);
-        bad += check("loading it says EMPTY SLOT and keeps the steps", !strcmp(ui.msg, "EMPTY SLOT") &&
-                      !memcmp(&trk[0].step[0], &keep, sizeof keep));
-        proj_slot[0] = old;
-        st_save(OBJ_PROJECT0, &proj_slot[0], sizeof proj_slot[0]);
-    }
-    {   /* an older format (FUN5) with values FUN7 cannot pack still loads, bounded */
-        uint32_t i;
-        memset(&v5, 0, sizeof v5);
-        v5.magic = PROJ_MAGIC_V5;
-        v5.size = sizeof v5;
-        for (i = 0; i < G_COUNT; i++)
-            v5.g[i] = GP[i].def;
-        for (i = 0; i < NTRK; i++) {
-            v5.t[i].engine = trk[i].engine;
-            memcpy(v5.t[i].p, trk[i].p, sizeof v5.t[i].p);
-        }
-        v5.t[0].p[P_LEVEL] = 900;                                  /* out of range */
-        v5.t[0].step[0] = (step10_t){{255, 128, 160, 200}, 255, 255, 0, 96, 255, 5};
-        v5.sum = proj_hash(&v5, sizeof v5 - 4u);
-        st_save(OBJ_PROJECT0 + 3u, &v5, sizeof v5);
-        memset(proj_slot[3].raw, 0, 4);
-        project_load(3);
-        bad += check("FUN5 load bounds steps and masks lane accents", trk[0].step[0].n == 4u &&
-                      trk[0].step[0].time == ST_REST && trk[0].step[0].note[0] == 127u &&
-                      !trk[0].step[0].note[1] && trk[0].step[0].acc == 5u && project_used(3));
-        bad += check("FUN5 load clamps a parameter into its range", trk[0].p[P_LEVEL] == TP[P_LEVEL].max);
-        for (i = 0; i < P_COUNT; i++) {
-            uint32_t e;
+    {   /* every parameter's range fits a FUN10 / pattern byte */
+        uint32_t i, e;
+        for (i = 0; i < P_COUNT; i++)
             for (e = 0; e < NENGINES; e++)
                 if (param_desc_of(e, i)->min < -64 || param_desc_of(e, i)->max > 127) {
-                    printf("param %u engine %u: range %d..%d does not fit FUN7's byte\n", i, e,
+                    printf("param %u engine %u: range %d..%d does not fit FUN10's byte\n", i, e,
                            param_desc_of(e, i)->min, param_desc_of(e, i)->max);
                     bad++;
                 }
-        }
     }
-    chain_config.count = 1;
-    chain_config.row[0] = chain_row_of(3, 1);
-    bad += check("SONG sources use the same step bounds", chain_prepare() == 0 &&
-                  !memcmp(&chain.source[3].step[0][0], &trk[0].step[0], sizeof(step_t)));
-    seq_stop();
     transport_req = 0;
     memset(&r, 0, sizeof r);
     r.used = UP_USED;
@@ -713,16 +656,15 @@ int main(void)
     chain.armed = 0;
     bad += check("preset invalid slot blocked before access", up_put(UP_SLOTS, &r) == 1 && erases == before);
     song.playing = 0; transport_req = 1; irq_start_race = 1;
-    bad += check("PLAY consumed before the save snapshot still blocks a project write",
-                  project_save(1) != 0 && irq_races == 1u && song.playing && !transport_req && erases == before);
-    song.playing = 0; transport_req = 1; irq_start_race = 1;
     bad += check("PLAY consumed before the preset snapshot still blocks a bank write",
-                  up_put(3, &r) == 2 && irq_races == 2u && song.playing && !transport_req && erases == before);
+                  up_put(3, &r) == 2 && irq_races == 1u && song.playing && !transport_req && erases == before);
+    song.playing = 0; transport_req = 1;
+    bad += check("a pending PLAY blocks a pattern write", pat_store(2, &trk[0], "X") == 1 && erases == before);
     song.playing = 0; transport_req = 1; irq_start_race = 1;
     settings.palette = 4;
     settings_save();
     bad += check("PLAY consumed before the settings snapshot defers the write",
-                  irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);
+                  irq_races == 2u && song.playing && !transport_req && persist_pending && erases == before);
     bad += mig_test();
     bad += autosave_test();
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");

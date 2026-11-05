@@ -21,12 +21,13 @@ static const uint8_t ED_MENU[][2] = {
     {MI_COLOR, 0}, {MI_STYLE, 1}, {MI_LARGE, 2}, {MI_ANIM, 3}, {MI_LEDS, 4}, {MI_HOLD, 5}, {MI_ACCEL, 6},
     {MI_LATCH, 7}, {MI_BPMLOCK, 8}, {MI_LOWCUT, 9}, {MI_USB, 10}, {MI_SERIAL, 11},
     {MI_CLICK, 12}, {MI_CLKLVL, 13}, {MI_COUNTIN, 14},
-    {MI_RESTORE, 15},                                  /* 1.2 (Discussion #130), a row of SYSTEM */
+                                                       /* (id 15: RESTORE LAST, 1.2; retired by MRC, the autosave is
+                                                        * always on: never reused, a MENU_SET of it is refused) */
     {MI_SCLLED, 16},                                   /* 1.2 (Discussion #127), a row of CONTROL */
     {MI_SCROFF, 17},                                   /* 1.1.5, a row of DISPLAY */
     {MI_SCOPE, 18},                                    /* 1.2 (Discussion #165), a row of DISPLAY */
     {MI_PREVIEW, 19},                                  /* 1.2 (Discussion #169), a row of CONTROL */
-    {MI_CHADD, 20},                                    /* 1.2 (#155), a row of CONTROL */
+    {MI_QUANT, 20},                                    /* MRC: QUANTIZE (the selected track's P_SQNT), in CHORD ENTRY's id; CONTROL */
     {MI_MIDIIN, 21},                                   /* 1.2: the project's G_ROUTE (was GLO > SYSTEM ROUT), MIDI */
     {MI_TUNE, 22},                                     /* 1.2: the project's G_TUNE (was GLO > GLOBAL), AUDIO */
     {MI_HOME, 23},                                     /* 1.3 (Discussions #112, #134): HOME SCOPE / TRACKS, DISPLAY */

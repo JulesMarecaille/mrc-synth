@@ -1,5 +1,8 @@
 # Credits
 
+MRC Synth is Jules Marécaille's modified version of Felucca (GPL-3.0-only). All credit for
+Felucca and the work it builds on goes to the people below.
+
 Felucca is Leo Kuroshita's ([@kurogedelic](https://github.com/kurogedelic), [Hügelton Instruments](https://hugelton.com)). It uses and
 thanks the work below; each keeps its own licence (see [LICENSE](LICENSE), [LICENSING.md](LICENSING.md) and [LICENSES/](LICENSES/)).
 

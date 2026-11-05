@@ -1009,6 +1009,18 @@ static int test_map(void)
         keyboard_block();
         perf_latch_on = 0;
         bad += check("  FX LATCH: the key's latched LPF becomes FLANGER as it is remapped; pressed again: off", ok);
+        /* MRC: the black keys' track mutes latch with FX LATCH off too; the effects stay momentary */
+        perf_press(PF_M1 + 1u, 1);
+        perf_press(PF_M1 + 1u, 0);
+        ok = perf_latched == PF_BIT(PF_M1 + 1u) && !perf_held;
+        perf_press(PF_LPF, 1);
+        ok &= perf_held == PF_BIT(PF_LPF) && perf_latched == PF_BIT(PF_M1 + 1u);
+        perf_press(PF_LPF, 0);
+        ok &= !perf_held;
+        perf_press(PF_M1 + 1u, 1);
+        perf_press(PF_M1 + 1u, 0);
+        ok &= !perf_latched && !perf_held;
+        bad += check("  MRC: a black key's mute latches (pressed again: off) with FX LATCH off; an effect key stays momentary", ok);
         for (p = 0; p < PF_KEYS; p++)
             perf_map[p] = PF_DEF[p];
         fm1_in.buttons = 0;

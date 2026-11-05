@@ -41,13 +41,16 @@ CODE = {0x2026: 0x85}                  # characters outside Latin-1 -> their one
 PHASES, PHASES_L = 4, 2                # horizontal phases per glyph (aa_raster.raster_font): S M, L
 # faces stored Huffman-coded (--huff): M and L. S, the most drawn and the least compressible (-15 %), stays
 # 2 px per byte, so the labels draw at full speed
-HUFF = [("M", "L")]
+HUFF = [("M", "L", "X")]
 # L draws only "FELUCCA", the UPDATE MODE countdown digit, the calibration's control names (panel.c
 # B_NAME / E_NAME) and MENU > LARGE's card values and page titles (ui_draw.c draw_column_tall, ui_graph.c
 # graph_title: # . / J W too; a value with another character is set in M): a sparse face of those glyphs, the
 # space as its range and the rest as extras
 # (ui_test.c checks that every L string is covered)
-L_CHARS = " #+-./0123456789ABCDEFGHIJKLMNOPQRSTUVWXY"
+L_CHARS = " #+-./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYhnsty"
+# MRC's X face: the one huge readout of a whole screen -- the boot screen's "MRC" and the tempo screen's
+# digits with "BPM". Those glyphs only, one phase (nothing this size needs sub-pixel pens)
+X_CHARS = " 0123456789BCHMPR"   # H: the cap band AF_X_CAP_Y / _CAP_H is measured off it
 
 
 def preset(name):
@@ -55,7 +58,12 @@ def preset(name):
         v = str(FONTS.parent / "assets" / "fonts" / "InterTight[wght].ttf")   # SIL OFL 1.1, Google Fonts
         return [("S", v + "@400", 12, (32, 126), EXTRAS, 0.0, PHASES),
                 ("M", v + "@500", 15, (32, 126), EXTRAS, 0.0, PHASES),
-                ("L", v + "@600", 28, (32, 32), [ord(c) for c in L_CHARS[1:]], 0.0, PHASES_L)]
+                ("L", v + "@600", 28, (32, 32), [ord(c) for c in L_CHARS[1:]], 0.0, PHASES_L),
+                ("X", v + "@200", 64, (32, 32), [ord(c) for c in X_CHARS[1:]], 0.0, 1),   # MRC: thin (was 600)
+                # the boot screen's own pair: MRC bold, synth light. Own faces, so the tempo digits (X) and the
+                # UI's values and titles (L) keep their weights
+                ("XB", v + "@800", 64, (32, 32), [ord(c) for c in "MRC"], 0.0, 1),
+                ("SL", v + "@300", 28, (32, 32), [ord(c) for c in "SYNTH"], 0.0, 1)]   # fold(): lowercase draws as capitals
     if name == "standin":
         if os.path.exists(LOCAL_INTER):
             reg, med, semi = LOCAL_INTER + "#0", LOCAL_INTER + "#10", LOCAL_INTER + "#12"
@@ -223,7 +231,7 @@ def emit(face, tracking, gamma, kern_min):
         lines.append(f"#define AF_{name}_CAP_H {cap[5]}")
     cost = {"data": len(data) + len(hc), "glyph_table": 8 * len(table), "kern": 3 * len(keys), "extras": len(extras),
             "glyphs": len(chars), "phases": phases, "pairs": len(keys), "h": r["h"], "asc": r["asc"], "px": px,
-            "font": os.path.basename(font.split("#")[0]), "adv_digit": r["glyphs"]["0"][0] / 16}
+            "font": os.path.basename(font.split("#")[0]), "adv_digit": r["glyphs"].get("0", (0,))[0] / 16}
     cost["total"] = cost["data"] + cost["glyph_table"] + cost["kern"] + cost["extras"]
     return "\n".join(lines) + "\n", cost
 

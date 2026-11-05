@@ -108,21 +108,9 @@ int main(void)
             putchar(',');
         js_str(ENGINES[eng_vis(k)]->name);
     }
-    printf("],\n\"PATTERNS\":[");
-    for (k = 0; k < NPATTERNS; k++) {
-        printf("%s\n [", k ? "," : "");
-        for (i = 0; i < 16u; i++)
-            v[i] = PATTERNS[k].note[i];
-        js_ints(v, 16);
-        putchar(',');
-        for (i = 0; i < 16u; i++)
-            v[i] = PATTERNS[k].flags[i];
-        js_ints(v, 16);
-        putchar(']');
-    }
-    printf("],\n\"TRK_DEF\":[");
+    printf("],\n\"TRK_DEF\":[");                   /* (MRC: no factory patterns, no pattern column) */
     for (k = 0; k < NPART; k++)
-        printf("%s[%d,%d,%d]", k ? "," : "", TRK_DEF[k][0], TRK_DEF[k][1], TRK_DEF[k][2]);
+        printf("%s[%d,%d]", k ? "," : "", TRK_DEF[k][0], TRK_DEF[k][1]);
     printf("],\n\"FM6\":{\"bank\":0,\"own\":%u,\"init\":", (unsigned)FM6_OWN);   /* FM6: the packed patches (no bank since 1.0.3) */
     for (i = 0; i < FM6_PACKED; i++)
         printf("%s%d", i ? "," : "[", FM6_INIT[i]);

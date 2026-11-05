@@ -11,7 +11,7 @@
 #define ED_HDR0 0x7D
 #define ED_HDR1 0x46
 #define ED_HDR2 0x4C
-enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, ED_PRESET, ED_PROJECT, ED_NAMES,
+enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, ED_PRESET, ED_PROJECT_RETIRED, ED_NAMES,
        ED_SMP_BEGIN, ED_SMP_WRITE, ED_SMP_END, ED_SMP_ERASE, ED_SMP_INFO,
        ED_UP_LIST, ED_UP_GET, ED_UP_PUT, ED_UP_STORE, ED_UP_LOAD, ED_UP_ERASE,   /* v2: user presets */
        ED_WATCH, ED_CHANGED, ED_RELOAD, ED_PING, ED_STEP_CHANGED,              /* v2: live sync */
@@ -20,6 +20,7 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_UI_STATE, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET,
        ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT };                              /* v6: song chain */
 
+#define ED_SONG_SILENT 127u                     /* MRC: SONG's "-" on the wire (CHAIN_SILENT is no 7-bit byte) */
 static uint8_t ed_out[664] __attribute__((section(".pool")));   /* (MOTION op 8: 128 records and their kinds, 653 bytes) */
 static uint32_t ed_n;
 
@@ -390,7 +391,7 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
     case ED_INFO: case ED_DUMP: case ED_SMP_INFO: case ED_PING:
     case ED_UI_STATE: case ED_UI_PALETTES: case ED_LEARN_GET: case ED_PALETTE_GET:
         return !n;
-    case ED_GET: case ED_DESC: case ED_PRESET: case ED_PROJECT: case ED_UP_LIST:
+    case ED_GET: case ED_DESC: case ED_PRESET: case ED_UP_LIST:
     case ED_TRACK_PARAM:
         return n == 2u || (cmd == ED_TRACK_PARAM && n == 4u);
     case ED_SET:
@@ -418,7 +419,7 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
                 (n == 6u && (a[1] == 3u || a[1] == 5u)) || (n == 4u && a[1] == 4u) || (n == 3u && a[1] == 6u)) &&
                a[0] < NTRK;
     case ED_SONG:
-        return n && (a[0] == 1u || a[0] == 5u || n == 1u);
+        return n && (a[0] == 5u || n == 1u);
     default:
         return 1;                                  /* variable payloads validate in their handler */
     }
@@ -578,19 +579,6 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(TSEL->preset);
         break;
     }
-    case ED_PROJECT:                                       /* 0 = load, 1 = save, 2 = query; slot 0..3 */
-        if (na < 2u || a[0] > 2u || a[1] >= 4u)
-            return;
-        if (a[0] == 1u) {
-            if (ed_flash_stop() || project_save(a[1]))
-                return;                              /* the legacy reply has no failure bit: do not confirm a failed save */
-        }
-        else if (a[0] == 0u)
-            project_load(a[1] & 3u);
-        ed_b(a[0]);
-        ed_b(a[1] & 3u);
-        ed_b(project_used(a[1] & 3u));
-        break;
     case ED_NAMES:                                         /* preset names of an engine */
         if (na < 1u || a[0] >= NENGINES)
             return;
@@ -683,9 +671,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_b(up_used(i) ? up_cat(i) : 0u);
         break;
     }
-    case ED_UP_GET: {                                      /* slot -> slot, used, engine, name, P_COUNT x v14, 16 x (note,
-                                                            * flags), (v5) kind [, 16 x hi], (1.2) category
-                                                            * (upreset.c up_parse) */
+    case ED_UP_GET: {                                      /* slot -> slot, used, engine, name, P_COUNT x v14, category
+                                                            * (MRC: no pattern; upreset.c up_parse) */
         int16_t v[P_COUNT];
         char nm[13] = {0};
         const up_rec_t *r;
@@ -704,17 +691,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_str(nm, 12);
         for (i = 0; i < P_COUNT; i++)
             ed_v(u ? v[i] : 0);
-        for (i = 0; i < 16u; i++) {
-            ed_b(u ? r->note[i] & 0x7Fu : 0u);
-            ed_b(u ? r->flags[i] & 0x7Fu : 0u);
-        }
-        ed_b(u && up_grid(r));                  /* kind: 1 = a drum grid, then bit 7 of each step's */
-        for (i = 0; u && up_grid(r) && i < 16u; i++)   /* hits (bit 0) and accents (bit 1) */
-            ed_b((uint32_t)(r->note[i] >> 7) | (uint32_t)(r->flags[i] >> 7) << 1);
-        ed_b(u ? up_cat_of(r) : 0u);            /* 1.2: the category (an older editor stops before it) */
+        ed_b(u ? up_cat_of(r) : 0u);            /* 1.2: the category */
         break;
     }
-    case ED_UP_PUT: {                                      /* slot, engine, name, values, pattern -> slot, rc */
+    case ED_UP_PUT: {                                      /* slot, engine, name, values [, category] -> slot, rc */
         static up_rec_t r;
         uint32_t slot = 0, rc;
         if (na < 1u)
@@ -859,28 +839,24 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_v(t->p[a[1]]);
         break;
     }
-    case ED_SONG: {                                     /* ops 0..3 rows of one slot (v6); 4..7 the same with a slot
-                                                         * per track (1.2, `57 01`) */
-        uint32_t rc = 0, op, lanes, w, k;
+    case ED_SONG: {                                     /* ops 4..7 (1.2, `57 01`): sections, a pattern per track (MRC:
+                                                         * 0..23, ED_SONG_SILENT "-"; upstream a PROJECT slot, and ops
+                                                         * 0..3 rows of one slot) */
+        uint32_t rc = 0, op, k;
         chain_config_t c;
-        if (!na || a[0] > 7u) return;
+        if (!na || a[0] < 4u || a[0] > 7u) return;
         op = a[0] & 3u;
-        lanes = a[0] >> 2;
-        w = lanes ? NTRK + 1u : 2u;                     /* the bytes of a row */
+        if (op != 1u && na != 1u) return;             /* (QUERY, PLAY, STOP: the op alone) */
         if (op == 1u) {
             chain_defaults(&c);
-            if (na < 2u || a[1] > CHAIN_ROWS || na != 2u + w * a[1]) rc = 1;
+            if (na < 2u || a[1] > CHAIN_ROWS || na != 2u + (NTRK + 1u) * a[1]) rc = 1;
             else {
                 c.count = a[1];
                 for (i = 0; i < c.count; i++) {
-                    const uint8_t *r = a + 2u + w * i;
-                    if (lanes) {
-                        memcpy(c.row[i].slot, r, NTRK);
-                        c.row[i].repeat = r[NTRK];
-                    } else if (r[0] < 4u)       /* (a row of one slot: all four tracks on it) */
-                        c.row[i] = chain_row_of(r[0], r[1]);
-                    else
-                        c.row[i].repeat = 0;    /* (invalid) */
+                    const uint8_t *r = a + 2u + (NTRK + 1u) * i;
+                    for (k = 0; k < NTRK; k++)
+                        c.row[i].slot[k] = (uint8_t)(r[k] == ED_SONG_SILENT ? CHAIN_SILENT : r[k]);
+                    c.row[i].repeat = r[NTRK];
                 }
                 if (!chain_valid(&c)) rc = 1;
                 else if (chain_busy()) rc = 2;
@@ -892,10 +868,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(chain.running); ed_b(chain.row); ed_b(chain.remaining);
         for (i = 0; i < chain_config.count; i++) {
             const chain_row_t *r = &chain_config.row[i];
-            if (lanes)
-                for (k = 0; k < NTRK; k++) ed_b(r->slot[k]);
-            else                                         /* v6: the clock track's slot (every track "-": A) */
-                ed_b(r->slot[chain_clock(r)] < 4u ? r->slot[chain_clock(r)] : 0u);
+            for (k = 0; k < NTRK; k++) ed_b(r->slot[k] < NPAT ? r->slot[k] : ED_SONG_SILENT);
             ed_b(r->repeat);
         }
         break;

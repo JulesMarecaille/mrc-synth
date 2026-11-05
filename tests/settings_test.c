@@ -28,7 +28,7 @@ int main(void)
 {
     persist_t original = {0}, p;
     original.magic = PERSIST_MAGIC;
-    original.palette = 4; original.bold = original.lowcut = original.zoom = 1;   /* old id 4: MONO, now GREY */
+    original.palette = 4; original.bold = original.lowcut = original.zoom = 1;   /* old id 4: MONO, now MRC */
     original.panel = PANEL_DEFAULT; original.panel.enc[0] = 3;
     original.favorites.factory[8][0] = 1;
     original.favorites.user = 1u << 31; original.favorites.filter = 1;
@@ -36,15 +36,15 @@ int main(void)
     assert(settings_import(&p, sizeof p) == 1); settings_init();
     assert(settings.palette == UI_GREY_INDEX && fx_lowcut && settings.zoom && panel.enc[0] == 3);
     assert(p.palette == palette_to_stored(UI_GREY_INDEX));        /* migrated in place */
-    {   /* every old id maps to a palette; tagged ids round trip; anything else is GREY */
+    {   /* every old id maps to a palette; tagged ids round trip; anything else is MRC */
         persist_t q = original;
         for (uint32_t i = 0; i < 20u; i++) assert(palette_from_stored(i) < NPALETTES);
         assert(palette_from_stored(13) == 6u && palette_from_stored(11) == 7u && palette_from_stored(19) == 7u);
         for (uint32_t i = 0; i < NPALETTES; i++) assert(palette_from_stored(palette_to_stored(i)) == i);
         assert(palette_from_stored(40) == UI_GREY_INDEX && !palette_stored_ok(40) && palette_stored_ok(3));
-        /* 1.0.2: the old MONO keeps its id as GREY (a saved MONO looks the same); the new black and white MONO is
+        /* 1.0.2: the old MONO keeps its id as MRC (a saved MONO looks the same); the new black and white MONO is
          * appended, a new id */
-        assert(palette_from_stored(UI_PAL_TAG + 0u) == UI_GREY_INDEX && !strcmp(UI_PALETTES[UI_GREY_INDEX].name, "GREY"));
+        assert(palette_from_stored(UI_PAL_TAG + 0u) == UI_GREY_INDEX && !strcmp(UI_PALETTES[UI_GREY_INDEX].name, "MRC"));
         assert(UI_BW_INDEX == NPALETTES - 1u && !strcmp(UI_PALETTES[UI_BW_INDEX].name, "MONO") &&
                palette_from_stored(UI_PAL_TAG + UI_BW_INDEX) == UI_BW_INDEX && palette_stored_ok(UI_PAL_TAG + UI_BW_INDEX));
         q.palette = palette_to_stored(5);
@@ -160,8 +160,8 @@ int main(void)
         }
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
-    {   /* 1.2 RESTORE LAST (ui.c PREF_RESTORE_OFF, bit 7 of MENU's flags, favorites.factory[15][30]): clear in every
-         * older record = ON; set = OFF, kept as saved with the other flags */
+    {   /* bit 7 of MENU's flags (favorites.factory[15][30]; 1.2's RESTORE LAST OFF, retired by MRC): kept as saved with
+         * the other flags, nothing reads it */
         persist_t q;
         p = original; p.magic = 0x50455233u;
         assert(settings_import(&p, sizeof p - sizeof p.favorites) == 2 && !(favorites.factory[15][30] & 128u));

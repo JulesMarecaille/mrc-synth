@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* The palettes and the real canvas/text renderer (src/gfx.c): GREY stays gray in every token and blend, MONO is
+/* The palettes and the real canvas/text renderer (src/gfx.c): MRC grey in BG / SURF and in every blend of two greys, MONO is
  * black and white in every token (one grey: DIM LINE RAISE LANE) and neutral in every blend,
  * every palette's text contrast, the alpha blend, the ramp cache, the fonts' metrics and the ellipsis.
  * Optional: a palette sheet (PPM). */
@@ -47,9 +47,9 @@ int main(int argc, char **argv)
     static const uint8_t pd[] = {0x08, 0xf0};
     const aafont_t probe = {1, 1, 'A', 'A', 0, 0, pg, pd, 0, 0, 0};
     double worst = 100;
-    assert(NPALETTES == 10u && !strcmp(UI_PALETTES[0].name, "GREY") && !strcmp(UI_PALETTES[7].name, "HI-CON") &&
+    assert(NPALETTES == 10u && !strcmp(UI_PALETTES[0].name, "MRC") && !strcmp(UI_PALETTES[7].name, "HI-CON") &&
            !strcmp(UI_PALETTES[8].name, "NIGHT") && !strcmp(UI_PALETTES[9].name, "MONO") && UI_BW_INDEX == 9u);
-    /* (#50, 1.0.2: appended, the ids stay; GREY is the MONO of 1.0.1, id 0) */
+    /* (#50, 1.0.2: appended, the ids stay; MRC is the MONO of 1.0.1, id 0) */
     for (unsigned st = ST_FLAT; st <= ST_LINE; st++) {   /* MONO: every token black or white, in FLAT and LINE */
         uint16_t *tok = &ux.bg;
         ux.style = (uint8_t)st;
@@ -69,8 +69,13 @@ int main(int argc, char **argv)
     for (unsigned p = 0; p < NPALETTES; p++) {
         uint16_t *tok = &ux.bg;
         palette_set(p);
-        if (p == UI_GREY_INDEX)
-            for (unsigned i = 0; i < 14; i++) assert(gray(tok[i]));      /* every token, derived ones too (RAISE, KEY the last) */
+        if (p == UI_GREY_INDEX) {
+            /* MRC: BG and SURF on the grey axis; TEXT and THEME a cream, ACCENT a mint (tools/gen_ui_palettes.py). The
+             * collapse to the red channel only between two greys (ux_is_grey): a grey blend stays grey, a coloured one
+             * keeps its hue */
+            assert(gray(T_BG) && gray(T_SURF) && !gray(T_TEXT) && !gray(T_THEME) && !gray(T_ACCENT));
+            assert(gray(ux_mix(T_BG, T_SURF, 50)) && gray(ux_mix(T_BG, 0xFFFFu, 37)) && !gray(ux_mix(T_BG, T_ACCENT, 50)));
+        }
         /* text and the things read on the screen; the generator checks the same (tools/gen_ui_palettes.py) */
         struct { uint16_t fg, bg; double min; } c[] = {
             {T_TEXT, T_BG, 12.0}, {T_TEXT, T_SURF, 9.0}, {T_MID, T_BG, 5.0}, {T_MID, T_SURF, 4.0},
@@ -100,8 +105,12 @@ int main(int argc, char **argv)
                 unsigned a = channel(under, k), z = channel(ink, k), m = channel(swap16(cv_px[1]), k);
                 assert(m >= (a < z ? a : z) && m <= (a > z ? a : z));   /* no halo */
             }
-            if (p == UI_GREY_INDEX) assert(gray(swap16(cv_px[1])));
             if (p == UI_BW_INDEX) assert(neutral(swap16(cv_px[1])));
+        }
+        if (p == UI_GREY_INDEX) {                             /* MRC: the text blend of a grey on a grey, grey */
+            cv_begin(3, 1, T_BG);
+            cv_text_on(0, 0, &probe, "A", 0xFFFFu, T_BG);
+            assert(gray(swap16(cv_px[1])));
         }
         assert(text_w(&AF_S, UI_PALETTES[p].name) <= 60);     /* the COLOR row's value */
         cv_begin(240, 124, T_BG);
@@ -125,8 +134,8 @@ int main(int argc, char **argv)
         for (unsigned y = 0; y < 124; y++)
             for (unsigned x = 0; x < 240; x++) {
                 uint16_t v = swap16(cv_px[y * 240 + x]);
-                if (p == UI_GREY_INDEX) assert(gray(v));          /* every blended pixel of GREY */
-                if (p == UI_BW_INDEX) assert(neutral(v));         /* and of MONO */
+                if (p == UI_BW_INDEX) assert(neutral(v));         /* every blended pixel of MONO (MRC's cream text is not
+                                                                   * grey: its rule is checked above) */
                 sheet[(p / 4 * 124 + y) * 960 + p % 4 * 240 + x] = v;
             }
     }
@@ -159,6 +168,6 @@ int main(int argc, char **argv)
         }
         fclose(f);
     }
-    printf("Palettes: GREY gray, MONO black and white, contrast (worst margin x%.2f), blending, ramp cache, font metrics and ellipsis passed.\n", worst);
+    printf("Palettes: MRC grey BG / SURF and grey blends, MONO black and white, contrast (worst margin x%.2f), blending, ramp cache, font metrics and ellipsis passed.\n", worst);
     return 0;
 }

@@ -68,6 +68,9 @@ ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
  * so unmuted it sounds as if it never was. Performance state: not saved, not recorded, no undo; a sound load into the
  * track (ui.c load_begin) and a project load (project_restore_runtime) clear it, power-off too */
 static uint8_t drum_mute[NPART];
+/* MRC: each part's hits a lane, counted (wrapping), and the last one's velocity: the EDIT pages' drawing strikes its
+ * pieces by them (ui_graph.c graph_drum), as they change. Struck from the keys, the sequencer and MIDI alike */
+static uint8_t drum_hit_n[NPART][DV_NLANE], drum_hit_vel[NPART][DV_NLANE];
 
 /* 1..3 named as the kit they play: aliases, never shown or offered (EDITOR_PROTOCOL.md: retired values) */
 static const char *const N_DRUM_KIT[] = {"STD", "66", "10", "77", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC"};
@@ -235,6 +238,8 @@ static void drum_note_on(track_t *t, voice_t *v)
                                                           * a key-off before the first block (zero-length MIDI
                                                           * notes) would end a fresh voice at env 0 in env_tick */
     dv_trigger(&L->v);
+    drum_hit_vel[(uint32_t)(t - trk) % NPART][lane] = v->vel;   /* (MRC: the drawing's hit, the velocity first) */
+    drum_hit_n[(uint32_t)(t - trk) % NPART][lane]++;
     if (lane == DV_HATC && K[DV_HATO].v.live)            /* a closed hat chokes the open one */
         dv_choke(&K[DV_HATO].v);
 }

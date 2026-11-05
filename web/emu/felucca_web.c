@@ -267,7 +267,7 @@ static void web_power_on(void)
     settings_init();
     usb_serial_apply();
     lcd_init();
-    draw_splash();                        /* main.c: the splash (ui_draw.c) */
+    splash_at(0);                         /* main.c: the splash (ui_draw.c; MRC: animated, from web_ms) */
     memset(&felucca_dbg, 0, sizeof felucca_dbg);
     felucca_dbg.magic = DBG_MAGIC;
     fm1_input_init();
@@ -279,7 +279,7 @@ static void web_power_on(void)
     audio_init();
     boot_leds();                          /* main.c: the power-on LED sweep, from the scan's start */
     autosave_boot(boot_clean);            /* main.c: the last session's music (1.2, project.c) */
-    web_boot_ms = fm1_ms + 430u;         /* main.c: 30 + 400 ms before the first frame */
+    web_boot_ms = fm1_ms + 30u + SPL_MS; /* main.c: 30 ms + the splash before the first frame (MRC's longer splash) */
     web_booted = 1;
 }
 
@@ -321,8 +321,15 @@ static void web_ms(void)
         }
         web_half ^= 1u;
     }
-    if (!web_booted || (int32_t)(fm1_ms - web_boot_ms) < 0)
+    if (!web_booted)
         return;
+    if ((int32_t)(fm1_ms - web_boot_ms) < 0) {           /* main.c: the splash animated, a frame each ~10 ms of it */
+        if ((int32_t)(fm1_ms - (web_boot_ms - SPL_MS)) >= 0 && fm1_ms - web_last_frame >= 10u) {
+            web_last_frame = fm1_ms;
+            splash_at(fm1_ms - (web_boot_ms - SPL_MS));
+        }
+        return;
+    }
     if (web_boot_ms) {                                    /* main.c: the splash goes, the loop starts */
         web_boot_ms = 0;
         kb_boot_hold = 0;

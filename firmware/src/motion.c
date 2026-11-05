@@ -310,7 +310,7 @@ static int motion_replace_track(track_t *t, const motion_store_t *in)
     return 0;
 }
 
-/* ---- 1.1.5: SEQ > AUTOMATION (ui_events.c ev_*): the records of a track as a list, edited one by one ---- */
+/* ---- 1.1.5: the records of a track as a list (motion_rows ..) ---- */
 /* the record of track t on step / id (either kind): its index, -1 none */
 static int32_t motion_find(const track_t *t, uint32_t step, uint32_t id)
 {

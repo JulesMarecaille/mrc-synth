@@ -47,6 +47,10 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #ifndef GFX_HOOK_RULE
 #define GFX_HOOK_RULE(x, y, w, h) ((void)0)        /* a divider drawn on the screen (ui_draw.c lcd_rule): no box may touch it */
 #endif
+#ifndef GFX_HOOK_SCREEN
+#define GFX_HOOK_SCREEN() ((void)0)                /* MRC: a full-screen view drawn in bands starts (the tempo, the sound
+                                                    * list): what was on the screen is gone, every pixel written once */
+#endif
 /* the alignment check (tests/ui_render.c): GFX_HOOK_ALIGN declares that the next item(s) drawn (a text, an icon, a
  * keycap, a cushion) are meant to sit centred in the box x0..x1, y0..y1 (canvas drawing coordinates, x1 y1 past it)
  * along AL_H and / or AL_V; AL_N(n): the next n items together. A text's ink is measured across (its glyphs' boxes)
@@ -67,7 +71,7 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #define AL_CELLS 32u                               /* the next cells (cv_rrect), not ink: a row of keys, a fill */
 #define AL_N(n) ((uint32_t)(n) << 8)
 
-#define CV_MAX (240u * 124u)      /* the graph strip is 240 x 124 */
+#define CV_MAX (240u * 140u)      /* the graph strip is 240 x 140 (MRC: it was 124, before the panel grew */
 static uint16_t cv_px[CV_MAX] __attribute__((section(".pool")));
 static uint32_t cv_w, cv_h;
 static uint16_t cv_bg;           /* what cv_begin cleared the canvas to */
@@ -84,7 +88,8 @@ static struct {
     uint16_t bg, surf, text, theme, accent;
     uint16_t mid, dim, line, sel, tint, ink, rec, raise, key, lane, grid;
     uint8_t light, mono;
-    uint8_t style;               /* MENU > STYLE (ui.c style_apply): ST_FLAT, ST_LINE */
+    uint8_t pal;                 /* MRC: the palette as set (NPALETTES = the editor's CUSTOM) */
+    uint8_t style;               /* MENU > STYLE (ui.c style_apply): ST_FLAT, ST_LINE; MRC: ST_BARE, never stored */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
 } ux;
 /* STYLE: FLAT, the filled SURF cards and panels; LINE, no SURF (it is BG) and 1 px T_RULE dividers between the
@@ -92,19 +97,27 @@ static struct {
  * Selections, accents, keys and gauges keep their fills in every style */
 #define ST_FLAT 0u
 #define ST_LINE 1u
-#define T_RULE ux.dim            /* LINE: the dividers (DIM: visible on NIGHT, GREY, MONO and PAPER, quieter than labels) */
+/* MRC: FLAT in the first palette. LINE's tokens (no SURF, dialogs and gauge tracks outlined) without its dividers
+ * and with FLAT's round corners: the drawings stand on the ground, nothing boxes them in (ui_draw.c style_apply) */
+#define ST_BARE 2u
+#define T_RULE ux.dim           /* LINE: the dividers (DIM: visible on NIGHT, MRC, MONO and PAPER, quieter than labels) */
 #define T_BG ux.bg               /* background */
 #define T_SURF ux.surf           /* dialogs, menu rows, mixer strips */
 #define T_TEXT ux.text           /* primary text */
 #define T_THEME ux.theme         /* values, curves, the gauge's end line */
 #define T_ACCENT ux.accent       /* the one active thing: hot knob, cursor, playhead */
+/* MRC: the brand accents (mrc_theme.h) colour the knob cards and the FX sends in the FIRST palette only.
+ * Every other palette draws those with its own tokens, as upstream did, so picking a theme really does
+ * replace the colours -- and the light palettes keep their contrast. */
+#define MRC_PALETTE 0u
+#define MRC_ON (ux.pal == MRC_PALETTE)
 #define T_MID ux.mid             /* labels, units, secondary text */
 #define T_DIM ux.dim             /* inactive, empty */
 #define T_LINE ux.line           /* 1 px dividers, gauge track */
 #define T_SEL ux.sel             /* selection and gauge fill */
 #define T_TINT ux.tint           /* a faint theme area */
 #define T_INK ux.ink             /* text on T_SEL / T_THEME */
-#define T_REC ux.rec             /* REC: fixed red (GREY, MONO: the accent) */
+#define T_REC ux.rec             /* REC: fixed red (MRC, MONO: the accent) */
 #define T_RAISE ux.raise         /* a raised area on a surface: stubs, guides, slots, chips, button wells */
 #define T_KEY ux.key             /* a keycap's fill (its label: T_INK; unavailable: a T_DIM fill) */
 #define T_LANE ux.lane           /* the piano roll: an in-scale row (SURF -> THEME 10 %) */
@@ -112,12 +125,19 @@ static struct {
 #define NPALETTES UI_NPALETTES
 
 static inline uint16_t ux_gray(uint32_t x5) { return (uint16_t)((x5 << 11) | (x5 << 6) | x5); }
-/* a + (b - a) * pct / 100 per channel, rounded; GREY on the red channel, so it stays gray */
+/* on the grey axis as ux_gray leaves it (r == b, g == 2 r): every token of the MRC palette is, the MRC
+ * brand accents are not. MRC's collapse to the red channel applies only between two such colours, so an
+ * accent keeps its hue in text, icons and blends while MRC stays grey everywhere else. */
+static inline int ux_is_grey(uint16_t c)
+{
+    return (uint32_t)(c >> 11) == (uint32_t)(c & 31u) && (uint32_t)((c >> 5) & 63u) == 2u * (uint32_t)(c & 31u);
+}
+/* a + (b - a) * pct / 100 per channel, rounded; MRC on the red channel, so it stays gray */
 static uint16_t ux_mix(uint16_t a, uint16_t b, int32_t pct)
 {
     static const uint8_t SH[3] = {11, 5, 0}, MK[3] = {31, 63, 31};
     uint32_t out = 0, k;
-    if (ux.mono) {
+    if (ux.mono && ux_is_grey(a) && ux_is_grey(b)) {
         int32_t x = a >> 11, d = ((b >> 11) - x) * pct;
         return ux_gray((uint32_t)(x + (d + (d >= 0 ? 50 : -50)) / 100));
     }
@@ -133,7 +153,7 @@ static uint32_t ux_luma(uint16_t c)        /* 0..255 */
 }
 
 /* 1.6 (#244): a palette of the user's, the 11th (index NPALETTES, "CUSTOM"): the same five stored colours, the rest
- * derived as for every palette, set from the editor (ui.c cpal_*; settings: favorites.factory[15][0..9, 12]). Not GREY
+ * derived as for every palette, set from the editor (ui.c cpal_*; settings: favorites.factory[15][0..9, 12]). Not MRC
  * (no gray ramps) and not MONO: the channels blend as they are */
 static ui_pal_t ux_cust = {"CUSTOM", 0x0841, 0xCE59, 0xEF5D, 0xFFDF, 0xFD20};
 /* the five colours as stored (RGB565, 16 bits little endian each: BG SURF TEXT THEME ACCENT) */
@@ -150,6 +170,7 @@ static void palette_set(uint32_t i)
 {
     int cust = i == NPALETTES;
     const ui_pal_t *p = cust ? &ux_cust : &UI_PALETTES[i % NPALETTES];
+    ux.pal = (uint8_t)(cust ? NPALETTES : i % NPALETTES);
     i %= NPALETTES;
     ux.mono = !cust && i == UI_GREY_INDEX;
     ux.bg = p->bg; ux.surf = ux.style ? p->bg : p->surf; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;
@@ -279,12 +300,83 @@ static void cv_line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c)
     }
 }
 
-/* a line `thick` px tall (the scope's trace: 2) */
-static void cv_line_t(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c, int32_t thick)
+/* MRC: the stroke of a curve: 1.5 px wide, anti-aliased against cv_bg, its ends in 1/16 px (LN) so a shallow slope
+ * does not stair. Along the major axis, 5 px across the centre, the coverage from each pixel's distance to it: full
+ * to 1/4 px, none from 5/4 px. A pixel keeps the stronger of what it has and what the stroke wants (the distance from
+ * cv_bg, so a light palette works too): a polyline's shared joints do not blob, and the order drawn does not matter.
+ * Only the canvas is read back, never the screen. The width is the 2 px cv_line_t's less a quarter */
+#define LN(v) ((v) * 16)
+static inline uint32_t ln_far(uint16_t p)     /* how far a colour stands from cv_bg */
 {
-    int32_t t;
-    for (t = 0; t < thick; t++)
-        cv_line(x0, y0 + t, x1, y1 + t, c);
+    int32_t r = (p >> 11) - (cv_bg >> 11), g = ((p >> 5) & 63) - ((cv_bg >> 5) & 63), b = (p & 31) - (cv_bg & 31);
+    return (uint32_t)(2 * (r < 0 ? -r : r) + (g < 0 ? -g : g) + 2 * (b < 0 ? -b : b));
+}
+static void cv_stroke(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c)
+{
+    static uint16_t ramp[17], ramp_c, ramp_bg;  /* the colour at coverage 0..16: kept, a curve is a run of one colour */
+    static uint32_t ramp_far[17], ramp_gen;
+    int32_t adx = x1 > x0 ? x1 - x0 : x0 - x1, ady = y1 > y0 ? y1 - y0 : y0 - y1, steep = ady > adx;
+    int32_t a0 = steep ? y0 : x0, b0 = steep ? x0 : y0, a1 = steep ? y1 : x1, b1 = steep ? x1 : y1;
+    int32_t da, db, adb, cs, step, a, ae, pos;
+    if (a0 > a1) {                              /* the major axis up */
+        int32_t t = a0; a0 = a1; a1 = t;
+        t = b0; b0 = b1; b1 = t;
+    }
+    da = a1 - a0;
+    db = b1 - b0;
+    adb = db < 0 ? -db : db;
+    cs = da ? (da << 8) / (da + adb * 3 / 8) : 256;   /* cos of the slope, Q8 (length: max + 3/8 min, ~4 %) */
+    step = da ? (db << 8) / da : 0;             /* minor px per major px, Q8 */
+    if (c != ramp_c || cv_bg != ramp_bg || ux.gen != ramp_gen) {
+        uint32_t k;
+        ramp_c = c;
+        ramp_bg = cv_bg;
+        ramp_gen = ux.gen;
+        for (k = 0; k <= 16u; k++) {
+            ramp[k] = ux_mix(cv_bg, c, (int32_t)k * 100 / 16);
+            ramp_far[k] = ln_far(ramp[k]);
+        }
+    }
+    a = (a0 + 8) >> 4;
+    ae = (a1 + 8) >> 4;
+    pos = (b0 << 4) + (((a << 4) - a0) * step >> 4);   /* the centre at a, Q8 */
+    for (; a <= ae; a++, pos += step) {
+        int32_t bc = (pos + 128) >> 8, b;
+        for (b = bc - 2; b <= bc + 2; b++) {
+            int32_t off = (b << 8) - pos, d, x = steep ? b : a, y = (steep ? a : b) + cv_oy;
+            uint32_t cov, i;
+            d = (off < 0 ? -off : off) * cs >> 8;
+            if (d >= 320 || (uint32_t)x >= cv_w || (uint32_t)y >= cv_h)
+                continue;
+            cov = d < 64 ? 16u : (uint32_t)(320 - d) >> 4;
+            i = (uint32_t)y * cv_w + (uint32_t)x;
+            if (ramp_far[cov] > ln_far(swap16(cv_px[i])))
+                cv_px[i] = swap16(ramp[cov]);
+        }
+    }
+}
+
+/* MRC: a filled dot on a curve, centre and radius in 1/16 px (LN): 4 x 4 samples a pixel, mixed over what the canvas
+ * holds, so it sits on top of the strokes it joins and takes one colour where two of them meet */
+static void cv_dot(int32_t cx, int32_t cy, int32_t r, uint16_t c)
+{
+    int32_t x0 = (cx - r) >> 4, x1 = (cx + r + 15) >> 4, y0 = (cy - r) >> 4, y1 = (cy + r + 15) >> 4, x, y;
+    for (y = y0; y <= y1; y++)
+        for (x = x0; x <= x1; x++) {
+            int32_t sx, sy, n = 0, yy = y + cv_oy;
+            uint32_t i;
+            if ((uint32_t)x >= cv_w || (uint32_t)yy >= cv_h)
+                continue;
+            for (sy = 0; sy < 4; sy++)
+                for (sx = 0; sx < 4; sx++) {
+                    int32_t dx = LN(x) + sx * 4 - 6 - cx, dy = LN(y) + sy * 4 - 6 - cy;
+                    n += dx * dx + dy * dy <= r * r;
+                }
+            if (!n)
+                continue;
+            i = (uint32_t)yy * cv_w + (uint32_t)x;
+            cv_px[i] = swap16(n == 16 ? c : ux_mix(swap16(cv_px[i]), c, n * 100 / 16));
+        }
 }
 
 /* coverage (0..16) of corner pixel (i, j) of a radius-r corner, (0, 0) the outermost: 4 x 4 samples */
@@ -363,7 +455,7 @@ static const uint16_t *ramp(uint16_t fg, uint16_t bg)
     for (a = 0; a < 16u; a++) {
         uint32_t out = 0;
         int32_t w = cv[a];
-        if (ux.mono) {
+        if (ux.mono && ux_is_grey(fg) && ux_is_grey(bg)) {
             int32_t x = bg >> 11;
             out = ux_gray((uint32_t)(x + ((((fg >> 11) - x) * w + 128) >> 8)));
         } else {

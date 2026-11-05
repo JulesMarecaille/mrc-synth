@@ -88,22 +88,6 @@ static uint32_t key_place(uint32_t k)
     return n;
 }
 enum { GK_ACC = NLANE, GK_PGDN, GK_PGUP };       /* black keys 9..11 on the grid */
-/* the DRUM grid: key k's lane note (black keys 1..8), KB_SILENT for the rest. Out of line (1.5): called from the audio
- * ISR's key loop only on a key change; inlined there, its % 12 and key_place's loop sat in the ISR's static cost
- * (tests/target_budget.py) for a path that runs once per key press */
-static __attribute__((noinline)) uint8_t grid_key_note(uint32_t k)
-{
-    return key_black(k) && key_place(k) < NLANE ? DRUM_LANE_NOTE[key_place(k)] : KB_SILENT;
-}
-/* GLO > SONG (song.grid 3): key k's slot, the white keys A3 B3 C4 D4 (white places 2..5: keys 4 6 7 9 from F) A..D; -1 = a
- * key that plays. A table, not key_place (a loop); the audio ISR's key loop reads SONG_KEYS, the same keys */
-#define SONG_KEYS (1u << 4 | 1u << 6 | 1u << 7 | 1u << 9)
-static int32_t song_key(uint32_t k)
-{
-    static const int8_t S[10] = {-1, -1, -1, -1, 0, -1, 1, 2, -1, 3};
-    return k < 10u ? S[k] : -1;
-}
-
 static uint32_t scale_mask(const track_t *t)
 {
     return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
@@ -171,6 +155,11 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
 #include "chord.c"
 
 /* ------------------------------------------------------------- arp --- */
+/* the note each of the last ARP_SEEN steps fired (step arp_idx at arp_idx % ARP_SEEN; 0: a rest, PROB), per part: the
+ * ARP page's ladder (ui_graph.c graph_arp). CHORD: its first note */
+#define ARP_SEEN 64u
+static uint8_t arp_fired[NPART][ARP_SEEN];
+static uint8_t arp_gen[NPART];                  /* counts the arp's restarts (a new chord held): the ladder's rungs anew */
 static void arp_add(track_t *t, uint32_t note)
 {
     uint32_t i, k = in_key - 1u;
@@ -193,6 +182,7 @@ static void arp_add(track_t *t, uint32_t note)
     if (t->nheld == 1u) {
         t->arp_pos = 0xFFFFFFF;                     /* fire on this block */
         t->arp_idx = 0xFFFFFFFFu;
+        arp_gen[trk_index(t)]++;
     }
 }
 
@@ -440,13 +430,16 @@ static __attribute__((noinline)) void arp_fire(track_t *t, uint32_t period)
     j = t->p[P_AMODE] == AM_CHORD ? 0u : arp_pick(t, list, len);
     if (t->arp_note)
         arp_off(t);
+    arp_fired[trk_index(t)][t->arp_idx % ARP_SEEN] = 0;
     if ((uint32_t)(rng() & 127u) <= (uint32_t)t->p[P_APROB]) {
         t->arp_off = period * (uint32_t)t->p[P_AGATE] / 128u;
         if (t->p[P_AMODE] == AM_CHORD) {            /* CHORD: the first 4 notes, an octave up each step */
             arp_chord(t, list, cnt);
+            arp_fired[trk_index(t)][t->arp_idx % ARP_SEEN] = t->arp_note;
             return;
         }
         t->arp_note = (uint8_t)list[j];
+        arp_fired[trk_index(t)][t->arp_idx % ARP_SEEN] = t->arp_note;
         if (rec_on(t))
             rec_note(t, t->arp_note, 100);           /* recording: what the arp plays */
         trk_note_on(t, t->arp_note, 100);
@@ -755,27 +748,64 @@ static __attribute__((noinline)) void perf_key_remap(void)
 
 /* key k plays kb_note[k] on track t: its chord (chord.c; the note alone with CHRD OFF). A note another key
  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
+/* MRC: SCL > CHORD's STRM (P_STRM): a key's chord notes start one after another, low to high, STRM ms apart
+ * (0: together). kb_chn counts the notes started so far (key_off, the roll's strip and MIDI see only those); kb_sn the
+ * chord's, kb_st0 the key's press (fm1_ms), kb_sms the gap taken then; kb_strum: the keys with notes still due */
+static uint8_t kb_sn[27], kb_sms[27];
+static uint32_t kb_st0[27], kb_strum;
+
+/* key k starts its chord note i on track t (none another key or MIDI holds already) */
+static void key_note(uint32_t k, track_t *t, uint32_t i)
+{
+    uint32_t x = kb_chord[k][i], vel = kb_vel;
+    if (midi_local_held(t, x))
+        return;
+    in_key = (uint8_t)(k + 1u);                     /* (the arp keeps the key: arp_add) */
+    input_on(t, x, vel);
+    midi_out_event(0x09u | (0x90u | trk_midi_ch(trk_index(t))) << 8 | x << 16 | vel << 24);
+    in_key = 0;
+}
+
 static void key_on(uint32_t k, track_t *t)
 {
-    uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t)), vel = kb_vel;
+    uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i;
     kb_chn[k] = 0;
-    in_key = (uint8_t)(k + 1u);                     /* (the arp keeps the key: arp_add) */
-    for (i = 0; i < n; i++) {
-        uint32_t x = kb_chord[k][i];
-        if (midi_local_held(t, x))
-            continue;
-        input_on(t, x, vel);
-        midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | vel << 24);
+    kb_sms[k] = (uint8_t)clamp(t->p[P_STRM], 0, 120);   /* (an old store's P_ED_FX may be below 0) */
+    if (n > 1u && kb_sms[k]) {                      /* strummed: the lowest now, the rest from strum_block */
+        key_note(k, t, 0);
+        kb_chn[k] = 1;
+        kb_sn[k] = (uint8_t)n;
+        kb_st0[k] = fm1_ms;
+        kb_strum |= 1u << k;
+    } else {
+        for (i = 0; i < n; i++)
+            key_note(k, t, i);
+        kb_chn[k] = (uint8_t)n;
     }
-    in_key = 0;
-    kb_chn[k] = (uint8_t)n;
     last_note = kb_note[k];                         /* (step entry, the SAMPLE zone: the key's note) */
 }
 
-/* key k is up: the notes it started end, but those another key still holds */
+/* the strummed keys' notes that are due (each block; a key let go is out of kb_strum already) */
+static __attribute__((noinline)) void strum_block(void)
+{
+    uint32_t k;
+    for (k = 0; k < 27u; k++) {
+        if (!((kb_strum >> k) & 1u))
+            continue;
+        while (kb_chn[k] < kb_sn[k] && fm1_ms - kb_st0[k] >= (uint32_t)kb_chn[k] * kb_sms[k]) {
+            key_note(k, &trk[kb_trk[k] % NTRK], kb_chn[k]);
+            kb_chn[k]++;
+        }
+        if (kb_chn[k] >= kb_sn[k])
+            kb_strum &= ~(1u << k);
+    }
+}
+
+/* key k is up: the notes it started end, but those another key still holds (a strum's notes still due: never) */
 static void key_off(uint32_t k, track_t *t)
 {
     uint32_t n = kb_chn[k], i, mc = trk_midi_ch(trk_index(t));
+    kb_strum &= ~(1u << k);
     kb_chn[k] = 0;
     for (i = 0; i < n; i++) {
         uint32_t x = kb_chord[k][i];
@@ -811,6 +841,8 @@ static void keyboard_block(void)
     ch = cur ^ kb_prev;                          /* keys also sound while entering steps */
     if (perf_remap)
         perf_key_remap();
+    if (kb_strum)
+        strum_block();
     if (!ch)
         return;
     if (kb_boot_hold) {                           /* #137: under the splash; their release is silent too */
@@ -822,7 +854,7 @@ static void keyboard_block(void)
     }
     lay = (fm1_in.buttons & kb_mask) || kb_lock;  /* (#83: kb_lock, a layer locked open with no button held) */
     fx = (fm1_in.buttons & perf_mask) || (kb_lock & 2u);
-    mute = song.grid == 2u ? ~0u : song.grid == 3u ? SONG_KEYS : 0u;   /* the keys that never sound here */
+    mute = song.grid == 2u ? ~0u : 0u;               /* the keys that never sound here (MRC: SONG's A..D gone) */
     for (k = 0; k < 27u; k++) {
         if (!((ch >> k) & 1u))
             continue;
@@ -841,8 +873,10 @@ static void keyboard_block(void)
             }
             if ((mute >> k) & 1u)                 /* NAME (ui_name.c): every key types, none sounds; SONG: A..D */
                 kb_note[k] = KB_SILENT;
-            else if (song.grid == 1u)             /* the DRUM grid: a lane key plays its lane, the rest are the UI's */
-                kb_note[k] = grid_key_note(k);
+            else if (song.grid == 1u)             /* MRC: the DRUM grid sounds nothing -- a lane key picks the lane
+                                                   * to edit and the white keys are its steps, so choosing KICK no
+                                                   * longer fires it (upstream played the lane, grid_key_note) */
+                kb_note[k] = KB_SILENT;
             else
                 kb_note[k] = (uint8_t)kb_map(&trk[kb_trk[k]], k);
             if (kb_note[k] == KB_SILENT)
@@ -1104,11 +1138,11 @@ static __attribute__((noinline)) uint32_t seq_time(track_t *t, uint32_t idx, uin
     return mod_time(t, s->n ? s->note[0] : DRUM_LANE_NOTE[__builtin_ctz(s->hit) & (NLANE - 1u)], vel, period);
 }
 
-/* the automation a track plays: its slot's while a song plays (song_chain.c lanes; 0: a silent lane, none) */
+/* the automation a track plays: its own, none while a song plays (MRC: a saved pattern holds none) */
 static const motion_store_t *chain_motion(const track_t *t)
 {
-    uint32_t s = chain.lane[trk_index(t)];
-    return !chain.running ? &motion : s < 4u ? &chain.source[s].motion : 0;
+    (void)t;
+    return chain.running ? 0 : &motion;
 }
 
 /* step idx plays: its chance (the one roll, as seq_step made it: a step that does not play applies no lock), the

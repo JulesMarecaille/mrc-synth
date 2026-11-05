@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DLY Visuals</title>
+<style>
+  :root { --bg:#141414; --surf:#1e1e1e; --text:#e4dcc8; --mid:#a6a092; --dim:#6e6a5f; --line:#3d3b36; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace, Consolas, monospace; }
+  main { max-width:900px; margin:0 auto; padding:16px; }
+  h1 { font-size:15px; letter-spacing:.08em; margin:0 0 4px; }
+  p.note { color:var(--mid); margin:0 0 14px; }
+  .screen { background:var(--surf); display:inline-block; padding:0; border:1px solid var(--line); border-radius:4px; overflow:hidden; max-width:100%; }
+  canvas { display:block; image-rendering:pixelated; max-width:100%; height:auto; }
+  .bar { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:12px 0; color:var(--mid); }
+  .bar button, .bar select { background:var(--surf); color:var(--text); border:1px solid var(--line); border-radius:3px; padding:4px 10px; font:inherit; cursor:pointer; }
+  .tabs button.on { border-color:var(--text); }
+  .pages { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
+  fieldset { border:1px solid var(--line); border-radius:4px; padding:8px 12px 10px; margin:0; }
+  legend { color:var(--mid); padding:0 6px; }
+  .k { display:grid; grid-template-columns:44px 1fr 64px; gap:8px; align-items:center; margin:4px 0; }
+  .k b { font-weight:600; }
+  .k span { text-align:right; color:var(--mid); }
+  input[type=range] { width:100%; }
+  ul { color:var(--mid); padding-left:18px; }
+  ul[hidden] { display:none; }
+  kbd { border:1px solid var(--line); border-radius:3px; padding:0 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DLY · BOUNCE prototype</h1>
+  <p class="note">BOUNCE, to replace the DLY page's ripples, at the 240 × 140 panel's resolution, MRC accents by knob
+    (TIME 1, FDBK 2, COLR 3, MIX 4). No sound: the echoes are computed from fx.c's own loop — TIME from the tempo
+    (delay_samples), FDBK × 230, COLR's one-pole low-pass in the feedback (2000 + COLR × 240) applied to a C4 saw on
+    each pass. Play notes with <kbd>Space</kbd>, the HIT button, or AUTO.</p>
+  <div class="screen"><canvas id="cv" width="240" height="140"></canvas></div>
+  <div class="bar">
+    <button id="hit">HIT (Space)</button>
+    <label>Auto <select id="auto"><option value="0">off</option><option value="1" selected>every bar</option><option value="2">random 8ths</option></select></label>
+    <label>BPM <input id="bpm" type="range" min="40" max="240" value="120" style="width:110px"> <span id="bpmv">120</span></label>
+    <label><input id="send" type="checkbox" checked> track's DLY send &gt; 0</label>
+  </div>
+  <div class="bar">
+    <label>Zoom <select id="zoom"><option>2</option><option selected>3</option><option>4</option></select></label>
+    <label>Palette <select id="pal"><option value="mrc">MRC (accent per knob)</option><option value="mono">Other palette (one colour)</option></select></label>
+    <button id="demo">Demo sweep</button>
+    <button id="rnd">Random</button>
+    <button id="reset">Defaults</button>
+  </div>
+  <div class="pages">
+    <fieldset><legend>DLY</legend><div id="p1"></div></fieldset>
+  </div>
+  <ul>
+    <li><b>BOUNCE</b>: each note a small ball kicked off the floor at the left, landing once each delay time: every landing an echo. The arcs ahead are dotted, the ones behind solid, so the whole tail reads at a glance; once the last echo has landed the arcs fade out (and an older note's dim as a new one starts) instead of vanishing.</li>
+    <li><b>TIME</b>: the distance between landings (the delay in samples, log scale, as the ripples' spacing).</li>
+    <li><b>FDBK</b>: each arc's height against the last, as the loop's gain and COLR's low-pass take the echo down (arcs and ball in FDBK's accent).</li>
+    <li><b>COLR</b>: the ball's shape: a round ball at 0 (dark), a sharp sawblade at 127 (bright), turning as it flies.</li>
+    <li><b>MIX</b>: dims all of it, 10 % at 0 to full at 127 (as INSERT's MIX). A track with its send at 0: a single hop.</li>
+  </ul>
+</main>
+<script>
+/* params.c N_DTIME, fx.c DIV_DEN / DIV_DOT / delay_samples */
+const N_DTIME = ["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR", "1/8D", "1/16D", "1/4D"];
+const DIV_DEN = [1, 2, 4, 8, 3, 6], FS = 44100, DLY_LEN = 65536, F0 = 261.63;
+const P = [["TIME", 0, 12, 1], ["FDBK", 0, 120, 60], ["COLR", 0, 127, 70], ["MIX", 0, 127, 64]];
+const ACC = ["#FBE8A6", "#F3BA5A", "#F79B7A", "#EB5560"];      /* mrc_theme.h MRC_ACCENT */
+const SURF = [30, 30, 30], MID = "#A6A092", DIM = "#6E6A5F", TEXT = "#E4DCC8", MONO_C = "#3DDC97";
+const v = P.map(p => p[3]);
+let bpm = 120, wet = true;
+
+const cv = document.getElementById("cv"), g = cv.getContext("2d");
+let mono = false, view = 0, time = 0;
+
+function hex(c) { return [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16)); }
+function mix(c, pct) {                                 /* gfx.c ux_mix: SURF blended to c, pct % */
+  const b = hex(c);
+  pct = Math.max(0, Math.min(100, pct));
+  return "#" + b.map((x, i) => Math.round(SURF[i] + (x - SURF[i]) * pct / 100).toString(16).padStart(2, "0")).join("");
+}
+function mix2(a, b, pct) {                             /* a blended to b */
+  const x = hex(a), y = hex(b); pct = Math.max(0, Math.min(100, pct)) / 100;
+  return "#" + x.map((q, i) => Math.round(q + (y[i] - q) * pct).toString(16).padStart(2, "0")).join("");
+}
+function acc(k) { return mono ? MONO_C : ACC[k % 4]; }
+function ink() { return mono ? MONO_C : TEXT; }
+function stroke(x0, y0, x1, y1, c) {
+  g.strokeStyle = c; g.beginPath(); g.moveTo(x0 + .5, y0 + .5); g.lineTo(x1 + .5, y1 + .5); g.stroke();
+}
+function poly(pts, c) {
+  g.strokeStyle = c; g.beginPath();
+  pts.forEach((p, i) => i ? g.lineTo(p[0] + .5, p[1] + .5) : g.moveTo(p[0] + .5, p[1] + .5)); g.stroke();
+}
+function dot(x, y, c) { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), 1, 1); }
+
+/* ---- the loop, as fx.c runs it ---- */
+function dlSamples() {
+  const q = FS * 60 / bpm, d = v[0];
+  const s = d >= 10 ? q * 3 / [4, 8, 2][d - 10] : d < 6 ? q / DIV_DEN[d] : q * 2 ** (d - 5);
+  return Math.max(16, Math.min(DLY_LEN - 1, Math.floor(s)));
+}
+const dl = () => dlSamples() / FS;
+/* ui_graph.c rip_gap's log scale, 0..1: 2^10 samples (23 ms) and below .. 2^16 (1.49 s) */
+const logT = () => Math.max(0, Math.min(1, (Math.log2(dlSamples()) - 10) / 6));
+const fb = () => v[1] * 230 / 32768;
+const lpA = () => (2000 + v[2] * 240) / 32768;
+/* the echoes' waves, one period each (WN points) and their peaks: gen 0 the dry note, gen 1 the first echo (read
+ * straight off the line), gen k: k - 1 passes through the low-pass and the feedback gain */
+const WN = 64, GMAX = 32, NH = 40;
+let wKey = "", waves = [], lev = [];
+function echoes() {
+  const key = v[1] + "," + v[2];
+  if (key == wKey) return;
+  wKey = key;
+  const a = lpA(), H = [];
+  for (let h = 1; h <= NH; h++) {                        /* one pole y += a (x - y): a / (1 - (1 - a) e^-jw) */
+    const w = 2 * Math.PI * h * F0 / FS, re = 1 - (1 - a) * Math.cos(w), im = (1 - a) * Math.sin(w);
+    H.push([a / Math.hypot(re, im), -Math.atan2(im, re)]);
+  }
+  waves = []; lev = [];
+  for (let k = 0; k < GMAX; k++) {
+    const n = Math.max(0, k - 1), gain = k < 2 ? 1 : fb() ** n, w = new Float64Array(WN);
+    for (let i = 0; i < WN; i++) {
+      let s = 0;
+      for (let h = 1; h <= NH; h++) {
+        const sig = Math.sin(Math.PI * h / (NH + 1)) / (Math.PI * h / (NH + 1));   /* Lanczos: no Gibbs horns */
+        s += sig / h * H[h - 1][0] ** n * Math.sin(2 * Math.PI * h * i / WN + H[h - 1][1] * n);
+      }
+      w[i] = -s * gain;
+    }
+    waves.push(w);
+  }
+  const p0 = Math.max(...waves[0].map(Math.abs));
+  waves.forEach(w => { for (let i = 0; i < WN; i++) w[i] /= p0; lev.push(Math.max(...w.map(Math.abs))); });
+}
+/* the generations a note shows: the dry one alone with the send at 0; else while an echo is still 3 % */
+function gens(isWet) {
+  if (!isWet) return 1;
+  let k = 1;
+  while (k < GMAX && lev[k] > .03) k++;
+  return k;
+}
+const waveAt = (k, ph) => { const w = waves[Math.min(k, GMAX - 1)], f = ((ph % 1) + 1) % 1 * WN, i = Math.floor(f); return w[i] + (w[(i + 1) % WN] - w[i]) * (f - i); };
+/* how lit an echo is s seconds after it plays: a fast rise, then gone by the next hit (as rip_levels) */
+function flash(s, d) {
+  if (s < 0) return 0;
+  const p = s / Math.max(.06, Math.min(.5, d));
+  return p < .08 ? p / .08 : p > 1 ? 0 : ((1 - p) / .92) ** 2;
+}
+const rim = () => 10 + 90 * v[3] / 127;                   /* MIX: the echoes' brightness, % (the ripples' RIP_RIM) */
+
+/* the notes played: start time (s), sent to the delay or not */
+let notes = [];
+function hit() { notes.push({ t: time, wet }); if (notes.length > 24) notes.shift(); }
+
+/* ===== BOUNCE: a ball a note, landing once a delay time, each arc an echo ===== */
+const smooth = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+/* a note's brightness, 0..1: full while it bounces, fading out once it has landed for good (over two delay times,
+ * at least 0.6 s), and down to 55 % as a newer note starts (over 0.3 s) */
+function life(n, i, d) {
+  const end = n.t + (n.wet ? gens(true) - 1 : 1) * d, nx = notes[i + 1];
+  let a = 1 - smooth((time - end) / Math.max(.6, 2 * d));
+  if (nx) a *= 1 - .45 * smooth((time - nx.t) / .3);
+  return a;
+}
+function drawBounce() {
+  const d = dl(), W = 14 + 50 * logT(), FY = 122, X0 = 14, HMAX = 104, M = rim() / 100;   /* MIX dims everything */
+  for (let x = 4; x < 236; x += 3) dot(x, FY + 1, mix(ink(), 30 * M));
+  notes.forEach((n, ni) => {
+    const fade = life(n, ni, d) * M;
+    if (fade <= .005 || time < n.t) return;
+    const e = (time - n.t) / d, ng = n.wet ? gens(true) : 2, k = Math.floor(e);
+    const hOf = j => n.wet ? Math.max(4, HMAX * lev[j]) : 22;   /* the arc into landing j */
+    const arcPt = (j, u) => [X0 + (j - 1 + u) * W, FY - 4 * hOf(j) * u * (1 - u)];
+    const bright = j => n.wet ? lev[j] / lev[1] : 1;          /* an arc as bright as its echo is loud */
+    /* the arcs: behind the ball solid, ahead dotted */
+    for (let j = 1; j < ng; j++) {
+      if (X0 + (j - 1) * W > 240) break;
+      const pts = [];
+      for (let u = 0; u <= 1.001; u += 1 / 24) pts.push(arcPt(j, u));
+      /* (arc j runs from landing j - 1 to j: the ball is on arc k + 1) */
+      if (j > k + 1) pts.forEach((p, i) => i % 3 == 0 && dot(p[0], p[1], mix(acc(1), (20 + 40 * bright(j)) * fade)));
+      else {
+        const u = j <= k ? 1 : e - k;
+        if (j > k) pts.forEach((p, i) => i / 24 > u && i % 3 == 0 && dot(p[0], p[1], mix(acc(1), (20 + 40 * bright(j)) * fade)));
+        poly(pts.filter((p, i) => i / 24 <= u), mix(acc(1), (25 + 55 * bright(j)) * fade));
+      }
+    }
+    /* the landings: a dash each, a splash when it plays, the dry kick in the ink */
+    for (let j = 0; j < ng; j++) {
+      const x = X0 + j * W, f = flash(e * d - j * d, d);
+      if (x > 240) break;
+      if (j <= k) stroke(x - 2, FY + 3, x + 2, FY + 3, j && n.wet ? mix(acc(3), 80 * fade) : mix(ink(), 60 * fade));
+      if (f > .02) {
+        const c = j && n.wet ? mix(acc(3), f * 100 * fade) : mix(ink(), f * 100 * fade), r = 3 + (1 - f) * 10;
+        g.strokeStyle = c; g.beginPath(); g.ellipse(x + .5, FY + .5, r, r * .35, 0, Math.PI, 2 * Math.PI); g.stroke();
+      }
+    }
+    /* the ball, in flight only: COLR its shape, a round ball at 0 to a five-toothed sawblade at 127, spinning */
+    if (k >= ng - 1) return;
+    const j = k + 1, p = arcPt(j, e - k), BR = 2.5, sh = v[2] / 127, pts = [];
+    for (let i = 0; i <= 40; i++) {
+      const q = i / 40, a = q * 2 * Math.PI + e * 3, rr = BR + sh * 2 * (1 - 2 * frac(q * 5)) * .5 + sh * .5;
+      pts.push([p[0] + Math.cos(a) * rr, p[1] - BR - 1 + Math.sin(a) * rr]);
+    }
+    g.fillStyle = mix(n.wet && j > 0 ? acc(1) : ink(), (50 + 50 * bright(j)) * fade);
+    g.beginPath(); pts.forEach((q, i) => i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])); g.fill();
+  });
+}
+const frac = x => x - Math.floor(x);
+
+function draw() {
+  g.fillStyle = "rgb(30,30,30)"; g.fillRect(0, 0, 240, 140);
+  g.lineWidth = 1; g.lineCap = "round";
+  echoes();
+  drawBounce();
+}
+
+/* the knobs */
+function show(i) {
+  const x = v[i];
+  if (i == 0) return N_DTIME[x] + " " + Math.round(dl() * 1000) + "ms";
+  return Math.round(x * 100 / P[i][2]) + " %";
+}
+function knobRow(i) {
+  const [l, mn, mx] = P[i];
+  const row = document.createElement("div");
+  row.className = "k";
+  row.innerHTML = `<b>${l}</b><input type="range" min="${mn}" max="${mx}" step="1"><span></span>`;
+  const r = row.querySelector("input"), s = row.querySelector("span"), b = row.querySelector("b");
+  const upd = () => { s.textContent = show(i); b.style.color = acc(i); r.style.accentColor = acc(i); };
+  r.value = v[i];
+  r.oninput = () => { v[i] = +r.value; upd(); };
+  row._sync = () => { r.value = v[i]; upd(); };
+  upd();
+  return row;
+}
+const rows = P.map((_, i) => knobRow(i));
+rows.forEach(r => document.getElementById("p1").appendChild(r));
+const sync = () => rows.forEach(r => r._sync());
+
+const zoom = document.getElementById("zoom");
+const setZoom = () => { cv.style.width = 240 * zoom.value + "px"; };
+zoom.onchange = setZoom;
+document.getElementById("pal").onchange = e => { mono = e.target.value === "mono"; sync(); };
+document.getElementById("hit").onclick = hit;
+document.addEventListener("keydown", e => { if (e.code == "Space" && e.target.tagName != "SELECT") { e.preventDefault(); hit(); } });
+const bpmI = document.getElementById("bpm");
+bpmI.oninput = () => { bpm = +bpmI.value; document.getElementById("bpmv").textContent = bpm; sync(); };
+document.getElementById("send").onchange = e => { wet = e.target.checked; };
+document.getElementById("reset").onclick = () => { P.forEach((p, i) => v[i] = p[3]); sync(); };
+document.getElementById("rnd").onclick = () => { P.forEach((p, i) => v[i] = p[1] + Math.floor(Math.random() * (p[2] - p[1] + 1))); sync(); };
+const autoS = document.getElementById("auto");
+let demo = false, demoT0 = 0, lastStep = -1;
+document.getElementById("demo").onclick = e => {
+  demo = !demo; demoT0 = performance.now();
+  e.target.textContent = demo ? "Stop" : "Demo sweep";
+};
+const tick = now => {
+  time = now / 1000;
+  /* AUTO: a note on each bar's downbeat, or on random 8ths */
+  const step = Math.floor(time * bpm / 30);
+  if (step != lastStep) {
+    if (lastStep >= 0 && (autoS.value == "1" && step % 8 == 0 || autoS.value == "2" && Math.random() < .22)) hit();
+    lastStep = step;
+  }
+  if (demo) {
+    const t = (now - demoT0) / 1000, w = f => (1 - Math.cos(t * f)) / 2;
+    v[0] = [3, 2, 5, 1, 4, 10, 0, 12][Math.floor(t / 5) % 8]; v[1] = Math.round(120 * w(.33));
+    v[2] = Math.round(127 * w(.21)); v[3] = Math.round(127 * w(.5));
+    sync();
+  }
+  draw();
+  requestAnimationFrame(tick);
+};
+setZoom();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

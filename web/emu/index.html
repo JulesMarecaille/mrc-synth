@@ -23,7 +23,7 @@ a { color: inherit; }
 .device { position: relative; width: 100%; aspect-ratio: 1000 / 624; user-select: none; -webkit-user-select: none;
           -webkit-touch-callout: none; touch-action: manipulation; }
 .device svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.device canvas { position: absolute; image-rendering: crisp-edges; image-rendering: pixelated; background: #000; }
+.device canvas { position: absolute; background: #000; }
 .hit { position: absolute; touch-action: none; cursor: pointer; -webkit-tap-highlight-color: transparent; border-radius: 10px; }
 .hit.knob { cursor: ns-resize; border-radius: 50%; }
 .hit:focus-visible { outline: 2px solid var(--lit); outline-offset: 2px; }
@@ -174,9 +174,6 @@ function build(name) {
   for (const [x, y, w, h] of L.trays) el("rect", { x, y, width: w, height: h, rx: 14, fill: "var(--tray)" });
   const [sx, sy, ss] = L.screen;
   el("rect", { x: sx, y: sy, width: ss, height: ss, rx: 18, fill: "#0b0b0c" });
-  const inset = ss / 32;                                         // the 240 x 240 panel inside its bezel
-  Object.assign(canvas.style, { left: `${(sx + inset) / L.w * 100}%`, top: `${(sy + inset) / L.h * 100}%`,
-                                width: `${(ss - 2 * inset) / L.w * 100}%`, height: `${(ss - 2 * inset) / L.h * 100}%` });
   KNOBS.forEach((n, i) => {
     const [x, y, r] = L.knobs[i], g = el("g", {});
     el("circle", { cx: x, cy: y, r: r + 5, fill: "var(--tray)" }, g);
@@ -371,8 +368,26 @@ addEventListener("blur", () => {
 });
 
 // ------------------------------------------------------------------ screen and lights
-const ctx = document.getElementById("screen").getContext("2d");
+const frame = document.createElement("canvas");
+frame.width = frame.height = 240;
+const ctx = frame.getContext("2d"), out = canvas.getContext("2d");
 const img = ctx.createImageData(240, 240);
+// The 240 x 240 panel inside its bezel (15/16 of it), on the display's own pixels: nearest-neighbour at a scale that is
+// not whole doubles some rows and columns, which kinks every diagonal and undoes the firmware's anti-aliasing. Near a
+// whole scale the canvas takes it exactly; otherwise the frame goes up by a whole factor, nearest-neighbour, and the
+// browser fits that to the size smoothly: every pixel the same size, no kink, the edges a little soft.
+function fitScreen() {
+  const L = LAYOUTS[layout], [sx, sy, ss] = L.screen, r = device.getBoundingClientRect(), d = devicePixelRatio;
+  const u = r.width / L.w, size = ss * 15 / 16 * u * d, n = Math.round(size / 240);
+  const px = n && Math.abs(size / (240 * n) - 1) < .04 ? 240 * n : Math.round(size);
+  const at = (o, c) => `${Math.round((o + c * u) * d - px / 2) / d - o}px`;   // on a whole display pixel
+  Object.assign(canvas.style, { left: at(r.left, sx + ss / 2), top: at(r.top, sy + ss / 2), width: `${px / d}px`, height: `${px / d}px` });
+  canvas.width = canvas.height = 240 * Math.max(1, Math.ceil(px / 240));
+  out.imageSmoothingEnabled = false;
+  out.drawImage(frame, 0, 0, canvas.width, canvas.height);
+}
+new ResizeObserver(fitScreen).observe(device);
+addEventListener("resize", fitScreen);                           // a browser zoom: the ratio moves, the panel may not
 function drawScreen(fb) {
   const d = img.data;
   for (let i = 0; i < 240 * 240; i++) {
@@ -383,6 +398,7 @@ function drawScreen(fb) {
     d[i * 4 + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
+  out.drawImage(frame, 0, 0, canvas.width, canvas.height);
 }
 // the power-on sweep (bsp/boards/fm1/fm1_led_anim.h): a level per LED, lit frames /64 (| 128: the glow under them), drawn as the
 // LED's share of lit between its dark (or glowing) colour and the lit one, mixed in linear light
@@ -492,7 +508,7 @@ async function switchOn() {
   try {
     const ac = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
     const [wasm] = await Promise.all([
-      fetch("felucca.wasm").then((r) => { if (!r.ok) throw new Error(`felucca.wasm: ${r.status}`); return r.arrayBuffer(); }),
+      fetch("felucca.wasm", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error(`felucca.wasm: ${r.status}`); return r.arrayBuffer(); }),
       ac.audioWorklet.addModule("worklet.js")]);
     node = new AudioWorkletNode(ac, "felucca", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
     node.connect(ac.destination);

@@ -191,10 +191,10 @@ static int cond_song(void)
     t->p[P_SLEN] = 12;
     for (i = 1; i < NTRK; i++)
         track_defaults_steps(&trk[i]);
-    project_save(0);
+    pat_store(0, t, "");                               /* (MRC: T1's as P01, the other lanes "-") */
     chain_config.count = 2;
-    chain_config.row[0] = (chain_row_t){{0, 0, 0, 0}, 4};
-    chain_config.row[1] = (chain_row_t){{0, 0, 0, 0}, 2};
+    chain_config.row[0] = (chain_row_t){{0, CHAIN_SILENT, CHAIN_SILENT, CHAIN_SILENT}, 4};
+    chain_config.row[1] = (chain_row_t){{0, CHAIN_SILENT, CHAIN_SILENT, CHAIN_SILENT}, 2};
     ok = chain_prepare() == 0;
     while (n < 256u && i++ < 40000u && (chain.running || chain.armed)) {
         uint32_t v0 = vage, k;
@@ -211,7 +211,8 @@ static int cond_song(void)
     ok &= !chain.running && c1 == 3u && c4 == 1u;     /* 1:3: section 1 loops 1 4, section 2 loop 1; 4:4: section 1's 4th */
     bad += check("conditions in a SONG: each section from its loop 1 (1:3 x3 over 4 + 2 repeats, 4:4 once)", ok);
     chain_defaults(&chain_config);
-    memset(proj_slot, 0, sizeof proj_slot);
+    memset(pat_ram, 0, sizeof pat_ram);
+    pat_boot();
     return bad;
 }
 
@@ -252,7 +253,6 @@ static int cond_ui(void)
 {
     int bad = 0, ok;
     track_t *t = melody(1u | 1u << 2);
-    uint16_t rw[EV_ROWS];
     uint32_t n, r, found = 0;
     go_page(GR_ROLL);
     ui.cursor = 2;
@@ -277,12 +277,6 @@ static int cond_ui(void)
     kt(EN_K1, 4);
     ok &= step_cond(&t->step[2]) == 4u;                /* 2:3 */
     bad += check("  a fast turn stops at 100 % on the way in", ok);
-    go_page_title("AUTOMATION");
-    n = ev_list(rw);
-    for (r = 0; r < n; r++)
-        found |= rw[r] == EVC(EVK_CHANCE, 2);
-    ui.force = 1; frame();
-    bad += check("AUTOMATION: the condition is the step's CHANCE row (\"STEP 03 COND 2:3\")", found != 0u);
     go_page_title("DETAIL");
     ui.cursor = 2;
     press(B_EDIT);

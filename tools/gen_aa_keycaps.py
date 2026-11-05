@@ -9,7 +9,7 @@ tools/build.py generate()).
 Keycaps: a fixed set of labels (the hardware controls the hints name, the state badges), each a pill
 KC_H px tall with corners of radius KC_R (about a third of the height), the label in Inter Tight
 KC_PX px / KC_WGHT centred in it by its ink. One 4-bit map per pill, two levels in one nibble, tinted at draw time
-with theme tokens (src/gfx.c cv_keycap; GREY stays gray, the dim state is just a tint):
+with theme tokens (src/gfx.c cv_keycap; MRC stays gray, the dim state is just a tint):
   0        outside the pill (left as it is)
   1 .. 4   the pill's anti-aliased edge: fill coverage 20 .. 80 % over what lies under it
   5        the fill

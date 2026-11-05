@@ -69,6 +69,7 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
     memset(&fx, 0, sizeof fx);
     memset(&pf, 0, sizeof pf);
     memset(ins, 0, sizeof ins);
+    chain_defaults(&chain_config);                /* (as main.c: MRC's song kind, which a project needs) */
     for (k = 0; k < NTRK; k++)
         pf.mg[k] = 32768;
     perf_held = perf_latched = 0;

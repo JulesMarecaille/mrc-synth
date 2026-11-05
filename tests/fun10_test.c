@@ -14,13 +14,11 @@
  *              rows (+ ADD NUDGE +4/16, KNOB 4 -8..+7, KNOB 2 the step, EDIT 0, SAVE held undoes; "QUANTIZE IS ON"
  *              while it is), and on STEP steps held + the PRESETS knob (let go: the cursor).
  *   MOTION     128 records shared by the four tracks, all played.
- *   FORMATS    FUN10 round trip (nudges, 128 records, the four parameters), FUN9 / FUN8 / FUN7 as 1.1 / 1.0 wrote
- *              them load as before (tests/old_pack.h), a FUN9 claiming more than 64 records or a nudge bit refused, a
- *              user preset's pattern keeps no nudge (its bit 4 is the tie), user presets of 99 and 103 parameters.
+ *   FORMATS    FUN10 round trip (nudges, 128 records, the four parameters; MRC: the song's sections of saved patterns),
+ *              user presets of 99 and 103 parameters. (MRC: FUN9 / FUN8 / FUN7 are no longer read.)
  * Built and run by tests/run_tests.sh. */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
-#include "old_pack.h"
 
 /* ---------------------------------------------------------------- LFO 2 --- */
 /* the LFO's phase over `blocks` blocks, in cycles (wraps + the phase) */
@@ -157,8 +155,8 @@ static int lfo(void)
     }
     bad += check("LFO 2 is no automation (motion_param), its page SYNC TRIG POL after LFO (LFO's family)",
                  !motion_param(P_LSYNC) && !motion_param(P_LTRIG) && !motion_param(P_LPOL) && !motion_param(P_SQNT) &&
-                 motion_param(P_LN7) && motion_param(P_E0) && PAGES[3].id[0] == P_LSYNC && !strcmp(PAGES[3].title, "LFO 2") &&
-                 PAGES[3].fam == FAM_LFO && PAGES[2].graph == GR_LFO && !strcmp(PAGES[4].title, "LFO DEST"));
+                 motion_param(P_LN7) && motion_param(P_E0) && PAGES[4].id[0] == P_LSYNC && !strcmp(PAGES[4].title, "LFO 2") &&
+                 PAGES[4].fam == FAM_LFO && PAGES[3].graph == GR_LFO && !strcmp(PAGES[5].title, "LFO DEST"));
     go_page(GR_LFO);
     ui.page++;                                       /* LFO 2 */
     page_entered();
@@ -374,52 +372,24 @@ static int nudge(void)
     seq_stop();
     bad += check("REC into a step before its nudged play: 60 at its time, the live 67 not again (2 note-ons)", ok);
 
-    /* the controls: SEQ > AUTOMATION's QUANTIZE and NUDGE rows, STEP with steps held + PRESETS */
+    /* the controls: MENU > CONTROL > QUANTIZE (MRC: it was SEQ > AUTOMATION's row), STEP with steps held + PRESETS */
     t = seq1(1);
     song.sel = 0;
     note_step(t, 3, 63, 0);
     {
-        uint16_t rw[EV_ROWS];
-        step_t ref[NSTEP];
-        uint32_t n;
-        go_auto_top(); frame();
-        turn(EN_K1, 1);                                 /* PLAY -> QUANTIZE */
-        ok = auto_cur() == EVC(EVK_QNT, 0) && t->p[P_SQNT] == 1;
-        turn(EN_K4, -1);
-        ok &= t->p[P_SQNT] == 0;
-        turn(EN_K4, 1);
+        ok = t->p[P_SQNT] == 1 && menu_get(MI_QUANT) == 1u;
+        menu_put(MI_QUANT, 0);
+        ok &= t->p[P_SQNT] == 0 && menu_get(MI_QUANT) == 0u;
+        menu_put(MI_QUANT, 1);
         ok &= t->p[P_SQNT] == 1;
-        press(B_OCTUP); press(B_EDIT);
-        ok &= t->p[P_SQNT] == 1 && msg_is("NOTHING TO DELETE") && !act_ready() && str_eq(act_name(4), "--");
-        bad += check("AUTOMATION's QUANTIZE row (the second): KNOB 4 OFF / ON; OCT+ and EDIT nothing", ok);
-        memcpy(ref, t->step, sizeof ref);
-        go_auto_add(EV_NUDGE, 3); frame();
-        n = ev_list(rw);
-        press(B_OCTUP);
-        ok = step_nudge(&t->step[3]) == 4 && auto_cur() == EVC(EVK_NUDGE, 3) && msg_is("QUANTIZE IS ON") &&
-             ev_list(rw) == n + 1u && !memcmp(&t->step[4], &ref[4], sizeof ref[4] * (NSTEP - 4u));
-        turn(EN_K4, 1); turn(EN_K4, 1); turn(EN_K4, 1); turn(EN_K4, 1);
-        ok &= step_nudge(&t->step[3]) == 7 && msg_is("QUANTIZE IS ON");
-        for (i = 0; i < 20u; i++) turn(EN_K4, -1);
-        ok &= step_nudge(&t->step[3]) == -8;
-        bad += check("AUTOMATION + ADD NUDGE: step 4 +4/16 (QUANTIZE ON: says so), KNOB 4 -8..+7", ok);
-        frame();
-        t->p[P_SQNT] = 0;
-        ui.msg_t = 0;
-        for (i = 0; i < 11u; i++) turn(EN_K4, 1);
-        bad += check("  QUANTIZE OFF: no message", step_nudge(&t->step[3]) == 3 && !msg_is("QUANTIZE IS ON"));
-        frames(2000);                                   /* (the next turn its own undo) */
-        turn(EN_K2, 1);                                 /* to step 5: step 4 back to 0 */
-        ok = step_nudge(&t->step[3]) == 0 && step_nudge(&t->step[4]) == 3 && auto_cur() == EVC(EVK_NUDGE, 4);
-        hold(B_SAVE);
-        ok &= step_nudge(&t->step[3]) == 3 && step_nudge(&t->step[4]) == 0;
-        hold(B_SAVE);
-        ok &= step_nudge(&t->step[4]) == 3;
-        bad += check("  KNOB 2 moves it to the next step; SAVE held undoes the move, held again redoes it", ok);
-        press(B_EDIT);
-        ok = step_nudge(&t->step[4]) == 0 && msg_is("DELETED");
-        bad += check("  EDIT: back to 0 (the row goes)", ok && ev_list(rw) == n);
-        t->p[P_SQNT] = 1;
+        bad += check("MENU > CONTROL > QUANTIZE: the selected track's, OFF / ON (ON by default)", ok);
+        step_set_nudge(&t->step[3], 4);
+        ok = step_nudge(&t->step[3]) == 4 && !ev_nudge_plays(t, &t->step[3]);
+        menu_put(MI_QUANT, 0);
+        ok &= ev_nudge_plays(t, &t->step[3]);
+        bad += check("  a NUDGE plays only with QUANTIZE OFF", ok);
+        menu_put(MI_QUANT, 1);
+        step_set_nudge(&t->step[3], 0);
     }
     {   /* the DRUM grid on STEP: a step key held + the PRESETS knob; let go: the hit stays */
         uint32_t k4;
@@ -475,7 +445,6 @@ static int formats(void)
     uint32_t i, k;
     project_t a, b;
     static project_store_t st;
-    static uint8_t v9[3648], v8[3584], v7[3388];
     track_t *t = seq1(1);
     t->p[P_LSYNC] = 8; t->p[P_LTRIG] = 1; t->p[P_LPOL] = 1; t->p[P_SQNT] = 0;
     trk[2].p[P_E0 + 3] = 5;
@@ -534,117 +503,43 @@ static int formats(void)
                                       "in place",
                      ok);
     }
-    {   /* the song's sections (1.2): a slot per track, "-" silent, 5 bytes a row, 84 in all, right after the steps */
+    {   /* the song's sections (1.2): a slot per track, 5 bytes a row, 84 in all, right after the steps. MRC: a slot is a
+         * saved pattern (0..23, CHAIN_SILENT "-"), the kind byte after the count says so */
         project_t c = a, d;
         uint32_t at = 68u + NTRK * (P_COUNT + 2u + NSTEP * 9u);
+        static const uint8_t PAT5[5] = {0, 1, 2, 23, CHAIN_SILENT};
         c.chain.count = CHAIN_ROWS;
+        c.chain.kind = CHAIN_KIND_PAT;
         for (i = 0; i < CHAIN_ROWS; i++)
-            c.chain.row[i] = (chain_row_t){{(uint8_t)(i % 5u), (uint8_t)((i + 1u) % 5u), (uint8_t)((i + 2u) % 5u),
-                                            (uint8_t)((i * 3u) % 5u)}, (uint8_t)(1u + i)};
+            c.chain.row[i] = (chain_row_t){{PAT5[i % 5u], PAT5[(i + 1u) % 5u], PAT5[(i + 2u) % 5u], PAT5[(i * 3u) % 5u]},
+                                           (uint8_t)(1u + i)};
         c.sum = proj_sum(&c);
         ok = proj_pack(&st, &c) && proj_import(&d, &st, sizeof st) && !memcmp(&c, &d, sizeof c) && st.raw[at] == CHAIN_ROWS &&
-             st.raw[at + 4u] == 0 && st.raw[at + 5u] == 1 && st.raw[at + 6u] == 2 && st.raw[at + 7u] == 0 && st.raw[at + 8u] == 1 &&
+             st.raw[at + 1u] == CHAIN_KIND_PAT && st.raw[at + 4u] == 0 && st.raw[at + 5u] == 1 && st.raw[at + 6u] == 2 &&
+             st.raw[at + 7u] == 0 && st.raw[at + 8u] == 1 && st.raw[at + 4u + 5u * 4u] == CHAIN_SILENT &&
              st.raw[at + 4u + 5u * 15u + 4u] == 16;
-        c.chain.row[3].slot[2] = 5;                   /* past "-": refused (pack and load) */
+        c.chain.row[3].slot[2] = NPAT;                /* past the last pattern, not "-": refused (pack and load) */
         c.sum = proj_sum(&c);
         ok &= !proj_pack(&st, &c);
-        bad += check("FUN10 round trip: 16 sections, a slot per track (A..D, -), the bytes in place", ok);
+        bad += check("FUN10 round trip: 16 sections, a saved pattern per track (P01..P24, -), the bytes in place", ok);
     }
     project_save(2);
     motion_clear(t); t->p[P_SQNT] = 1; step_set_nudge(&t->step[1], 0);
     project_load(2);
     bad += check("  saved and loaded on the device: the same", step_nudge(&t->step[1]) == 7 && t->p[P_SQNT] == 0 &&
                  motion.count == MOTION_MAX && t->p[P_LSYNC] == 8);
-    st.raw[68u + 4u] |= 0x80u;                       /* a nudge bit in a FUN10 note byte: fine; in a FUN9: refused */
 
-    /* FUN9 (1.1), FUN8 (1.0.x), FUN7: as before; the four parameters at their defaults, every nudge 0 */
-    memset(&a.motion, 0, sizeof a.motion);
-    for (i = 0; i < 64u; i++)
-        a.motion.event[i] = (motion_event_t){(uint8_t)((i % 4u) << 6 | i / 4u), (uint8_t)(i % 5u ? P_REV : P_E0 + 3), (int8_t)(i % 5u ? i : 2)};
-    a.motion.count = 64; a.motion.on = 15;
-    a.motion.event[7].param = P_PAN; a.motion.event[7].value = -40;
-    a.motion.event[9].param |= MOTION_LOCK;
-    for (k = 0; k < NTRK; k++) {
-        a.t[k].p[P_LSYNC] = a.t[k].p[P_LTRIG] = a.t[k].p[P_LPOL] = 0;
-        a.t[k].p[P_SQNT] = 1;
-        for (i = 0; i < NSTEP; i++)
-            step_set_nudge(&a.t[k].step[i], 0);
-    }
-    memcpy(a.name, "OLD SONG", 9);
-    chain_defaults(&a.chain);                         /* a song of rows {slot, repeat} (36 bytes then) */
-    a.chain.count = 3;
-    a.chain.row[0] = chain_row_of(0, 4); a.chain.row[1] = chain_row_of(3, 16); a.chain.row[2] = chain_row_of(1, 1);
-    a.sum = proj_sum(&a);
-    ok = old_pack(v9, &a, OLD_FUN9, 99u) == sizeof v9 && proj_import(&b, v9, sizeof v9) && !memcmp(&a, &b, sizeof a);
-    bad += check("FUN9 (1.1, 64 records of 4 bytes): exactly the project (LFO 2 / QUANTIZE defaults, nudges 0)", ok);
-    {
-        uint8_t c9[3648];
-        uint32_t sum, at = 68u + NTRK * (99u + 2u + NSTEP * 9u);
-        ok = b.chain.count == 3u && !memcmp(&b.chain.row[1], &(chain_row_t){{3, 3, 3, 3}, 16}, sizeof(chain_row_t)) &&
-             v9[at] == 3 && v9[at + 4u] == 0 && v9[at + 5u] == 4 && v9[at + 6u] == 3 && v9[at + 7u] == 16;
-        memcpy(c9, v9, sizeof c9);
-        c9[at + 6u] = 4;                              /* a row on slot 4: never in a FUN9 */
-        sum = proj_hash(c9, 3644u); memcpy(c9 + 3644u, &sum, 4);
-        ok &= !proj_import(&b, c9, sizeof c9);
-        bad += check("  its song: rows {slot, repeat} load as sections with the four tracks on the row's slot; slot 4 refused", ok);
-        proj_import(&b, v9, sizeof v9);
-    }
-    {
-        uint8_t c9[3648];
-        uint32_t sum, mo = 68u + NTRK * (99u + 2u + NSTEP * 9u) + sizeof(chain_v9_t);
-        memcpy(c9, v9, sizeof c9);
-        c9[mo] = 65;                                  /* 65 records: never in a FUN9 */
-        sum = proj_hash(c9, 3644u); memcpy(c9 + 3644u, &sum, 4);
-        ok = !proj_import(&b, c9, sizeof c9);
-        memcpy(c9, v9, sizeof c9);
-        c9[mo + 4u + 4u * 7u + 2u] = 0x00; c9[mo + 4u + 4u * 7u + 3u] = 0x01;   /* a value of 256 */
-        sum = proj_hash(c9, 3644u); memcpy(c9 + 3644u, &sum, 4);
-        ok &= !proj_import(&b, c9, sizeof c9);
-        memcpy(c9, v9, sizeof c9);
-        c9[68u + 99u + 2u] |= 0x80u;                  /* a note byte above 127 (a FUN10's nudge bit) */
-        sum = proj_hash(c9, 3644u); memcpy(c9 + 3644u, &sum, 4);
-        ok &= !proj_import(&b, c9, sizeof c9);
-        bad += check("  a FUN9 claiming 65 records, a value out of -64..127 or a note byte above 127: refused", ok);
-    }
-    for (k = 0; k < NTRK; k++)                       /* (FUN8 / FUN7: no lane levels, no locks then) */
-        for (i = P_LN0; i <= P_LN7; i++)
-            a.t[k].p[i] = 127;
-    a.motion.event[9].param &= 0x7Fu;
-    a.sum = proj_sum(&a);
-    ok = old_pack(v8, &a, OLD_FUN8, 91u) == sizeof v8 && proj_import(&b, v8, sizeof v8) && !memcmp(&a, &b, sizeof a);
-    bad += check("FUN8 (1.0.x, 91 parameters): exactly the project", ok);
-    for (k = 0; k < NTRK; k++)
-        memcpy(a.fm6[k], FM6_INIT, FM6_PACKED);
-    a.g[G_RTYPE] = 1;                                /* (a FUN7 knew ROOM and SPRING: above, the old drum channel) */
-    a.sum = proj_sum(&a);
-    ok = old_pack(v7, &a, OLD_FUN7, 91u) == sizeof v7 && proj_import(&b, v7, sizeof v7) && !memcmp(&a, &b, sizeof a);
-    bad += check("FUN7 (91 parameters): exactly the project, the init patches", ok);
-    for (i = 0; i < 2u; i++) {                        /* a retained slot of 3840 holding the older records */
-        static project_store_t slot;
-        memset(&slot, 0xA5, sizeof slot);
-        memcpy(slot.raw, i ? v8 : v9, i ? sizeof v8 : sizeof v9);
-        ok = proj_import(&b, &slot, sizeof slot) && b.motion.count == 64u;
-        bad += check(i ? "  a retained (longer) slot holding a FUN8: loads" : "  a retained (longer) slot holding a FUN9: loads", ok);
-    }
-    project_restore_runtime(&b);
-    bad += check("  restored: QUANTIZE ON, LFO 2 off, every step's nudge 0, the 64 records", trk[0].p[P_SQNT] == 1 &&
-                 !trk[0].p[P_LSYNC] && !step_nudge(&trk[0].step[1]) && motion.count == 64u && motion.event[7].value == -40);
-
-    /* user presets: a record of 103 round trips; one of 99 (1.1) gets the four at their defaults; a pattern keeps no
-     * nudge (bit 4 of its flags is the tie) */
+    /* user presets: a record of 103 round trips; one of 99 (1.1) gets the four at their defaults (MRC: no pattern) */
     {
         up_rec_t r;
         int16_t v[P_COUNT], def[P_COUNT];
         t = seq1(1);
         t->p[P_LSYNC] = 4; t->p[P_LPOL] = 1;
-        note_step(t, 0, 60, -8);                     /* (bit 4 of the flags set) */
-        note_step(t, 1, 62, 3);
         memset(&r, 0, sizeof r);
         r.used = UP_USED; r.ver = UP_VER; r.engine = 0; r.np = P_COUNT;
         for (i = 0; i < P_COUNT; i++) { up_set_value(&r, i, t->p[i]); def[i] = TP[i].def; }
-        up_pat_from(&r, t->step);
         up_params(&r, v, def);
-        ok = v[P_LSYNC] == 4 && v[P_LPOL] == 1 && r.flags[0] == 0 && r.note[0] == 60 && r.flags[1] == 0 && r.note[1] == 62;
+        ok = v[P_LSYNC] == 4 && v[P_LPOL] == 1;
         r.np = 99;                                    /* as 1.1 stored it: the engine's 8 after its 91 */
         for (i = 0; i < 8u; i++) up_set_value(&r, 91u + i, (int16_t)(10 + i));
         up_params(&r, v, def);

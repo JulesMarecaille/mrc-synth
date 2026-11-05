@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VOICE Pages Visuals</title>
+<style>
+  :root { --bg:#141414; --surf:#1f1f1f; --raise:#2a2a2a; --text:#E4DCC8; --mid:#8a8578; --dim:#4a4740; --line:#2e2c28;
+          --a1:#FBE8A6; --a2:#F3BA5A; --a3:#F79B7A; --a4:#EB5560; --cw:480px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace,Consolas,monospace; }
+  main { max-width:1520px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:15px; letter-spacing:.12em; margin:0 0 4px; color:var(--a2); }
+  p.sub { margin:0 0 14px; color:var(--mid); max-width:900px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0; }
+  .row label { color:var(--mid); display:flex; gap:6px; align-items:center; }
+  button, select { background:var(--raise); color:var(--text); border:1px solid var(--dim); border-radius:6px;
+                   font:inherit; padding:6px 10px; cursor:pointer; }
+  button:hover { border-color:var(--mid); }
+  button.on { background:var(--a2); color:#141414; border-color:var(--a2); }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, var(--cw)), 1fr)); gap:18px; margin:14px 0 18px; }
+  .card { min-width:0; }
+  .card h2 { font-size:13px; font-weight:normal; margin:0 0 6px; color:var(--mid); letter-spacing:.06em; }
+  .card h2 b { color:var(--text); font-weight:600; }
+  .screen { background:#000; padding:6px; border-radius:8px; display:inline-block; max-width:100%; }
+  .screen canvas { display:block; width:var(--cw); max-width:100%; aspect-ratio:240/140; image-rendering:pixelated; }
+  .card ul { margin:8px 0 0; padding-left:16px; color:var(--mid); font-size:12px; }
+  .card li { margin:1px 0; }
+  .card li b { color:var(--text); font-weight:600; }
+  .pages { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:14px; }
+  fieldset { border:1px solid var(--line); border-radius:8px; padding:8px 12px 10px; margin:0; background:var(--surf); }
+  legend { color:var(--mid); padding:0 6px; }
+  .k { display:grid; grid-template-columns:52px 1fr 70px; gap:8px; align-items:center; margin:5px 0; }
+  .k span:first-child { letter-spacing:.06em; }
+  .k output { text-align:right; color:var(--mid); }
+  .k input[type=range] { width:100%; }
+  .seg { display:flex; gap:4px; flex-wrap:wrap; }
+  .seg button { padding:3px 8px; font-size:12px; }
+  #kb { display:flex; position:relative; height:86px; user-select:none; touch-action:none; max-width:100%; overflow:hidden; }
+  #kb div { flex:1 1 0; min-width:0; border:1px solid var(--dim); background:var(--text); border-radius:0 0 5px 5px; margin-right:1px; }
+  #kb div.b { position:absolute; height:52px; background:#222; border-color:#000; z-index:1; }
+  #kb div.on { background:var(--a4) !important; }
+  .hint { color:var(--mid); font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+<h1>VOICE PAGES — THREE DRAWINGS</h1>
+<p class="sub">Three replacements for the folding fan, each live on the voices it describes (not the knobs alone): play the keys
+  (mouse, touch, or the computer keys <b>A W S E D F T G Y H U J K</b>), or press DEMO. Every knob of both pages is below.
+  240&times;140 px, the graph panel, scaled up.</p>
+
+<div class="row">
+  <button id="demo">DEMO</button>
+  <label>PALETTE <select id="pal"><option value="mrc">MRC accents</option><option value="mono">one ink</option></select></label>
+  <label>ENGINE VOICES <select id="poly"><option>8</option><option>6</option><option>4</option></select></label>
+  <span class="hint" id="state"></span>
+</div>
+
+<div class="cards">
+  <div class="card"><h2><b>A · STAGE</b> — where the voices sit</h2>
+    <div class="screen"><canvas id="c0" width="240" height="140"></canvas></div>
+    <ul>
+      <li>A lamp a voice on a rail from L to R: <b>PAN</b> slides them, <b>SPRD</b> spreads them apart (0: all on PAN).</li>
+      <li>A sounding voice shines a beam on the stage, wide as its envelope; its note sits on the beam at its pitch.</li>
+      <li><b>GLD</b>: the note slides up or down the beam (a short trail); RATE / TIME as the sound does it.</li>
+      <li><b>UNI</b>: every lamp on one note, the spots shimmering apart with <b>DTUNE</b>. <b>MONO</b> one lamp; <b>LEG</b> a tie over the note.</li>
+      <li><b>ALLOC</b>: a caret over the lamp the next note takes. <b>PRIO</b>: held notes wait as hollow marks, the winner filled.</li>
+    </ul>
+  </div>
+  <div class="card"><h2><b>B · CAROUSEL</b> — who gets the next note</h2>
+    <div class="screen"><canvas id="c1" width="240" height="140"></canvas></div>
+    <ul>
+      <li>A seat a voice on a turning carousel; the next note boards at the gate (the caret at the front).</li>
+      <li><b>ALLOC ROT</b>: it turns one seat forward each note. <b>REUSE</b>: it swings back to the seat that last played that key.</li>
+      <li>A rider rides as high as its pitch, bobbing with its envelope; <b>GLD</b> lifts it smoothly to the new note.</li>
+      <li><b>SPRD</b> widens the ring, <b>PAN</b> slides it left or right. <b>UNI</b>: all ride together, <b>DTUNE</b> putting them out of step.</li>
+      <li><b>MONO</b>: one seat; <b>LEG</b>: its rider stays seated (a ring) across tied notes; <b>PRIO</b>'s queue on its pole.</li>
+    </ul>
+  </div>
+  <div class="card"><h2><b>C · TRACE</b> — what each voice played</h2>
+    <div class="screen"><canvas id="c2" width="240" height="140"></canvas></div>
+    <ul>
+      <li>Pitch over time, scrolling left, a line a voice; an octave grid. The newest note in the accent.</li>
+      <li><b>GLD</b> draws the glide's curve: RATE a fixed slope (big jumps slower), TIME a fixed length.</li>
+      <li><b>UNI</b>: the voices fanned round the note by <b>DTUNE</b> (drawn 3&times;). <b>LEG</b>: one unbroken line; <b>MONO</b> breaks at each note.</li>
+      <li>On the right the stereo field: a dot a voice at its pan (<b>PAN</b>, <b>SPRD</b>), at its pitch.</li>
+      <li>Under it the 8 slots: lit held, outlined releasing; <b>ALLOC</b>'s caret on the next one. <b>PRIO</b>: hollow queue marks.</li>
+    </ul>
+  </div>
+</div>
+
+<h1>FROM THE KNOBS ALONE</h1>
+<p class="sub">Three more that need no note: they draw what the knobs set up, moving on a clock only (ALLOC's choice, PRIO's
+  queue, UNI's beating), so the page is alive with the keys untouched. ALLOC and PRIO are acted out by an imaginary player:
+  ALLOC by notes arriving twice a second, PRIO by three held keys arriving high, low, then middle (every 2.4 s).</p>
+<div class="cards">
+  <div class="card"><h2><b>D · ARC</b> — the voices round the listener's head</h2>
+    <div class="screen"><canvas id="c3" width="240" height="140"></canvas></div>
+    <ul>
+      <li>Seen from above: a head, and a half circle from L to R in front of it. A dot a voice at its pan: <b>PAN</b> turns them, <b>SPRD</b> spreads them.</li>
+      <li>The triangle on the arc is <b>PAN</b>, pointing at the head.</li>
+      <li><b>DTUNE</b> (POLY and UNI alike): each dot pushed in or out by its own share, up to 20 px, always inside the arc.</li>
+      <li><b>GLD</b>: one arc through each dot (round the head, its middle on the dot), longer with the glide, up to 14 px either side, the same on every dot. <b>GLMOD</b> draws nothing.</li>
+      <li><b>MONO</b> one dot, <b>LEG</b> tied. <b>ALLOC</b> and <b>PRIO</b> draw nothing.</li>
+    </ul>
+  </div>
+  <div class="card"><h2><b>E · PIPES</b> — an organ rank, a pipe a voice</h2>
+    <div class="screen"><canvas id="c4" width="240" height="140"></canvas></div>
+    <ul>
+      <li>A pipe a voice on a wind chest; <b>PAN</b> slides the rank, <b>SPRD</b> spaces the pipes (0: as tight as they go).</li>
+      <li><b>DTUNE</b> makes the pipes uneven (<b>UNI</b>: a slope either side of the middle; <b>POLY</b>: a slight scatter); <b>UNI</b> all speak, flickering at their beat.</li>
+      <li><b>GLD</b> bends the pipes over towards their tops: RATE all one way, TIME towards the middle (the fan's rule).</li>
+      <li><b>MONO</b>: one wide pipe; <b>LEG</b>: banded. <b>ALLOC</b>: the speaking pipe (air rising). <b>PRIO</b>: three keys at its foot, the winner lit.</li>
+    </ul>
+  </div>
+  <div class="card"><h2><b>F · WAVES</b> — what each voice would sound, a jump at a time</h2>
+    <div class="screen"><canvas id="c5" width="240" height="140"></canvas></div>
+    <ul>
+      <li>A lane a voice, each wave jumping to a new note halfway across (each lane its own jump: up a fifth, an octave, down ...).</li>
+      <li><b>GLD</b> is the width of the bend between the two notes. <b>RATE</b>: wider for bigger jumps; <b>TIME</b>: the same in every lane.</li>
+      <li><b>UNI</b>: one wave, the voices summed; <b>DTUNE</b> beats it (drawn 4&times;). <b>MONO</b>: it re-attacks at the jump; <b>LEG</b>: it doesn't.</li>
+      <li>Under it L..R, a tick a voice (<b>PAN</b>, <b>SPRD</b>). <b>ALLOC</b>: the lit lane. <b>PRIO</b>: the queue in the corner.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="pages">
+  <fieldset><legend>VOICE</legend><div id="p1"></div></fieldset>
+  <fieldset><legend>VOICE 2</legend><div id="p2"></div></fieldset>
+</div>
+<div class="row"><div id="kb" style="width:100%"></div></div>
+</main>
+
+<script>
+/* ================= the knobs (params.c) ================= */
+const P = { VCE: 0, GLD: 0, GLMOD: 0, SPRD: 0, ALLOC: 0, DTUNE: 40, PAN: 0, PRIO: 0 };
+const ENUM = { VCE: ["POLY", "MONO", "LEG", "UNI"], GLMOD: ["RATE", "TIME"], ALLOC: ["ROT", "REUSE"], PRIO: ["LAST", "LOW", "HIGH"] };
+const RANGE = { GLD: [0, 127], SPRD: [0, 127], DTUNE: [0, 127], PAN: [-64, 63] };
+const PAGES = [["VCE", "DTUNE", "PAN", "SPRD"], ["ALLOC", "GLD", "GLMOD", "PRIO"]];
+const fmt = (k, v) => k === "PAN" ? (v === 0 ? "C" : (v < 0 ? "L" : "R") + Math.round(Math.abs(v) * 100 / 64)) :
+  k === "SPRD" ? Math.round(v * 100 / 127) + "%" : k === "GLD" ? (v ? glideS(v).toFixed(2) + "s" : "OFF") : String(v);
+
+/* ================= colours ================= */
+const ACC = ["#FBE8A6", "#F3BA5A", "#F79B7A", "#EB5560"];      /* mrc_theme.h MRC_ACCENT */
+const C = { bg: "#141414", text: "#E4DCC8", mid: "#8a8578", dim: "#4a4740", line: "#2e2c28", mono: "#3DDC97" };
+const BGRGB = [20, 20, 20];
+let pal = "mrc";
+const hex = c => [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16));
+function mix(c, pct) {                                   /* gfx.c ux_mix: BG blended to c, pct % */
+  pct = Math.max(0, Math.min(100, pct));
+  const b = hex(c);
+  return "rgb(" + b.map((x, i) => Math.round(BGRGB[i] + (x - BGRGB[i]) * pct / 100)).join(",") + ")";
+}
+/* knob k's accent, by its place on the page: 1 VCE/ALLOC, 2 GLD/DTUNE, 3 GLMOD/PAN, 4 SPRD/PRIO */
+const acc = k => pal === "mrc" ? ACC[k & 3] : C.mono;
+const ink = () => pal === "mrc" ? C.text : C.mono;
+
+/* ================= the voices (voice.c, simplified) ================= */
+const NV = 8;
+let N = 8;                                               /* the engine's polyphony */
+const V = [];
+for (let i = 0; i < NV; i++)
+  V.push({ i, note: -1, last: -1, gate: false, env: 0, rel: false, p: 60, from: 60, to: 60, gT: 0, gD: 0, age: 0, cents: 0, pan: 0 });
+let held = [], rot = 0, lastPitch = 60, ageC = 0, newest = -1, tieOn = false;
+const glideS = g => Math.pow(g / 127, 2) * 1.5;          /* GLD -> seconds (TIME) or s an octave/4 (RATE) */
+const sl = (i, n) => n > 1 ? i / (n - 1) * 2 - 1 : 0;    /* -1..1 across n */
+const mode = () => ENUM.VCE[P.VCE];
+function prioNote() {
+  if (!held.length) return -1;
+  return P.PRIO === 1 ? Math.min(...held) : P.PRIO === 2 ? Math.max(...held) : held[held.length - 1];
+}
+function nextVoice(n) {                                  /* the voice note n would take (POLY) */
+  if (P.ALLOC === 1) {
+    for (let i = 0; i < N; i++) if (V[i].last === n && !V[i].gate) return i;
+    for (let i = 0; i < N; i++) if (!V[i].gate && V[i].env < 0.002) return i;
+    for (let i = 0; i < N; i++) if (!V[i].gate) return i;
+  } else {
+    for (let k = 0; k < N; k++) { const i = (rot + k) % N; if (!V[i].gate) return i; }
+  }
+  let o = 0;                                             /* all held: steal the oldest */
+  for (let i = 1; i < N; i++) if (V[i].age < V[o].age) o = i;
+  return o;
+}
+function glideTo(v, n, glide) {
+  v.from = glide && P.GLD ? v.p : n;
+  v.to = n;
+  v.gT = 0;
+  const s = glideS(P.GLD);
+  v.gD = v.from === v.to ? 0 : P.GLMOD === 1 ? s : s * Math.abs(v.to - v.from) / 3;
+  if (!glide || !P.GLD) v.p = n;
+}
+function trig(v, n) { v.gate = true; v.rel = false; v.age = ++ageC; v.note = n; v.last = n; newest = v.i; }
+function noteOn(n) {
+  held = held.filter(x => x !== n);
+  held.push(n);
+  const m = mode();
+  if (m === "POLY") {
+    const i = nextVoice(n), v = V[i];
+    if (P.ALLOC === 0) rot = (i + 1) % N;
+    v.p = v.env > 0.002 ? v.p : lastPitch;
+    glideTo(v, n, true);
+    trig(v, n);
+    v.env = Math.min(v.env, 0.1);
+    lastPitch = n;
+    car.target(i, P.ALLOC === 0);
+  } else if (m === "UNI") {
+    for (let i = 0; i < N; i++) { glideTo(V[i], n, V[i].env > 0.002); trig(V[i], n); }
+    newest = 0;
+    lastPitch = n;
+  } else {
+    const t = prioNote(), v = V[0], was = v.gate;
+    if (t !== v.note || !was) {
+      glideTo(v, t, was || P.VCE === 1);
+      if (m === "MONO" || !was) { trig(v, t); v.env = Math.min(v.env, 0.15); }
+      else { v.note = t; v.last = t; v.age = ++ageC; }
+      tieOn = m === "LEG" && was;
+    }
+    lastPitch = t;
+  }
+}
+function noteOff(n) {
+  held = held.filter(x => x !== n);
+  const m = mode();
+  if (m === "POLY") {
+    V.forEach(v => { if (v.gate && v.note === n) { v.gate = false; v.rel = true; } });
+  } else if (m === "UNI") {
+    if (!held.length) V.forEach(v => { if (v.gate) { v.gate = false; v.rel = true; } });
+    else { const t = held[held.length - 1]; for (let i = 0; i < N; i++) { glideTo(V[i], t, true); V[i].note = t; } }
+  } else {
+    const v = V[0];
+    if (!held.length) { if (v.gate) { v.gate = false; v.rel = true; } tieOn = false; }
+    else {
+      const t = prioNote();
+      if (t !== v.note) {
+        glideTo(v, t, true);
+        if (m === "MONO") trig(v, t); else { v.note = t; tieOn = true; }
+      }
+    }
+  }
+}
+function allOff() {
+  held = [];
+  V.forEach(v => { v.gate = false; v.rel = false; v.env = 0; v.note = -1; });
+  keys.forEach(k => k.classList.remove("on"));
+  tieOn = false;
+}
+function step(dt) {
+  const m = mode(), uni = m === "UNI", d = P.DTUNE / 127;
+  V.forEach((v, i) => {
+    if (v.gD > 0) { v.gT += dt; v.p = v.from + (v.to - v.from) * Math.min(1, v.gT / v.gD); if (v.gT >= v.gD) v.gD = 0; }
+    if (v.gate) v.env += v.env < 0.75 && v.age === ageC && v.gT < 0.02 ? (1 - v.env) * Math.min(1, dt * 60) : (0.72 - v.env) * Math.min(1, dt * 4);
+    else v.env = Math.max(0, v.env - dt * v.env * 3.2 - dt * 0.02);
+    /* detune: UNI fans the voices +-50 cents; POLY's voices drift +-12 cents */
+    v.cents = uni ? sl(i, N) * d * 50 : (i & 1 ? 1 : -1) * ((i * 37) % 7 + 3) / 9 * d * 12;
+    /* pan: PAN, SPRD spreading the voices across L..R (MONO / LEG on PAN) */
+    const s = m === "POLY" || uni ? sl(i, N) * P.SPRD / 127 : 0;
+    v.pan = Math.max(-1, Math.min(1, P.PAN / 64 + s));
+  });
+}
+const sounding = v => v.i < N && v.env > 0.004;
+const pitchOf = (v, ex = 1) => v.p + v.cents / 100 * ex;
+
+/* ================= drawing helpers ================= */
+let g, T = 0;
+function line(x0, y0, x1, y1, c) { g.strokeStyle = c; g.lineWidth = 1; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
+function poly(pts, c, closed) {
+  g.strokeStyle = c; g.lineWidth = 1; g.beginPath();
+  pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]));
+  if (closed) g.closePath();
+  g.stroke();
+}
+function ring(x, y, r, c) { g.strokeStyle = c; g.lineWidth = 1; g.beginPath(); g.arc(x, y, Math.max(r, 0.1), 0, 2 * Math.PI); g.stroke(); }
+function disc(x, y, r, c) { g.fillStyle = c; g.beginPath(); g.arc(x, y, Math.max(r, 0.1), 0, 2 * Math.PI); g.fill(); }
+function ell(x, y, rx, ry, c, a0 = 0, a1 = 2 * Math.PI) { g.strokeStyle = c; g.lineWidth = 1; g.beginPath(); g.ellipse(x, y, Math.max(rx, .1), Math.max(ry, .1), 0, a0, a1); g.stroke(); }
+function caret(x, y, c, down = true) { g.fillStyle = c; g.beginPath(); g.moveTo(x - 3, y); g.lineTo(x + 3, y); g.lineTo(x, y + (down ? 4 : -4)); g.fill(); }
+const pn = p => Math.max(0, Math.min(1, (p - 36) / 48));   /* C2..C6 -> 0..1 */
+function clear() { g.fillStyle = C.bg; g.fillRect(0, 0, 240, 140); }
+
+/* ================= A: STAGE ================= */
+function drawStage() {
+  clear();
+  const RY = 14, FY = 120, X = p => 120 + p * 100, m = mode(), uni = m === "UNI";
+  line(14, RY, 226, RY, C.line);
+  g.fillStyle = C.mid; g.font = "7px ui-monospace,Consolas,monospace";
+  g.textAlign = "left"; g.fillText("L", 6, RY + 3); g.textAlign = "right"; g.fillText("R", 236, RY + 3);
+  ell(120, FY, 108, 12, C.line, 0, Math.PI);
+  line(12, FY, 228, FY, C.line);
+  line(X(P.PAN / 64), FY - 2, X(P.PAN / 64), FY + 3, acc(2));            /* PAN's mark */
+  const n = m === "POLY" || uni ? N : 1;
+  for (let i = 0; i < n; i++) {                                           /* lamps first, beams over */
+    const v = V[i], x = X(v.pan);
+    ring(x, RY + 4, 3, mix(ink(), 45));
+    if (sounding(v)) disc(x, RY + 4, 2.5, mix(acc(0), 30 + 70 * v.env));
+  }
+  for (let i = 0; i < n; i++) {
+    const v = V[i];
+    if (!sounding(v)) continue;
+    const wob = uni ? Math.sin(T * (2 + Math.abs(v.cents) * 0.4) + i) * Math.abs(v.cents) / 50 * 4 : 0;
+    const x = X(v.pan), sx = x + wob, w = 3 + v.env * 9, c = mix(ink(), 20 + 45 * v.env);
+    line(x - 2, RY + 7, sx - w, FY, c);
+    line(x + 2, RY + 7, sx + w, FY, c);
+    ell(sx, FY, w, 2.5, mix(ink(), 40 + 60 * v.env));
+    const t = (FY - 10) - pn(pitchOf(v, 3)) * (FY - RY - 26), fx = x + (sx - x) * (t - RY) / (FY - RY);
+    if (v.gD > 0) {                                                       /* the glide's trail */
+      const f = (FY - 10) - pn(v.from) * (FY - RY - 26);
+      line(fx, f, fx, t, mix(acc(1), 70));
+    }
+    disc(fx, t, 2.6, v.i === newest ? acc(3) : mix(acc(0), 50 + 50 * v.env));
+    if (m === "LEG" && tieOn && v.gate) {                                 /* tied */
+      g.strokeStyle = acc(2); g.beginPath(); g.arc(fx, t + 2, 7, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+    }
+  }
+  if (m === "MONO" || m === "LEG") {                                      /* PRIO's queue */
+    const v = V[0], x = X(v.pan);
+    held.forEach(h => { if (h !== v.note) ring(x + 8, (FY - 10) - pn(h) * (FY - RY - 26), 2, acc(3)); });
+  } else if (m === "POLY") {                                              /* ALLOC: where the next note goes */
+    const i = nextVoice(-99), x = X(V[i].pan);
+    caret(x, RY - 9 + Math.sin(T * 6), acc(0));
+  }
+}
+
+/* ================= B: CAROUSEL ================= */
+const car = {
+  a: 0, to: 0,
+  target(i, fwd) {                                       /* bring seat i to the gate (the front) */
+    const step = 2 * Math.PI / N;
+    let t = -i * step;
+    const k = Math.round((this.a - t) / (2 * Math.PI));
+    t += k * 2 * Math.PI;
+    if (fwd && t > this.a + 1e-6) t -= 2 * Math.PI;      /* ROT: always the same way round */
+    this.to = t;
+  },
+  update(dt) { this.a += (this.to - this.a) * Math.min(1, dt * 7); }
+};
+function drawCarousel() {
+  clear();
+  const m = mode(), uni = m === "UNI", n = N;
+  const rx = 34 + P.SPRD / 127 * 62, ry = rx * 0.3;
+  const cx = 120 + P.PAN / 64 * (112 - rx), BY = 104, TY = 40, step = 2 * Math.PI / n;
+  ell(cx, TY, rx * 0.92, ry * 0.92, C.line);                              /* canopy */
+  poly([[cx - rx * 0.95, TY], [cx, TY - 26], [cx + rx * 0.95, TY]], mix(ink(), 35));
+  line(cx, TY - 26, cx, BY, C.line);                                      /* the centre pole */
+  const seats = [];
+  for (let i = 0; i < n; i++) {
+    const a = car.a + i * step, z = Math.cos(a);
+    seats.push({ i, z, x: cx + Math.sin(a) * rx, y: BY + z * ry, tx: cx + Math.sin(a) * rx * 0.92, ty: TY + z * ry * 0.92 });
+  }
+  ell(cx, BY, rx, ry, mix(ink(), 30));                                    /* platform */
+  seats.sort((a, b) => a.z - b.z);
+  seats.forEach(s => {
+    const v = V[s.i], used = m === "POLY" || uni || s.i === 0, sc = 0.65 + 0.35 * (s.z + 1) / 2;
+    line(s.tx, s.ty, s.x, s.y, used ? mix(ink(), 25 + 30 * (s.z + 1) / 2) : C.line);
+    if (!used) return;
+    if (sounding(v)) {
+      const ph = uni ? T * 4 + (v.cents / 50) * Math.PI : T * 4 + s.i;
+      const bob = Math.sin(ph) * 2.5 * v.env;
+      const top = s.ty + 6, bot = s.y - 6, y = bot - pn(pitchOf(v, 3)) * (bot - top) + bob;
+      if (v.gD > 0) line(s.x + 4 * sc, bot - pn(v.from) * (bot - top), s.x + 4 * sc, y, mix(acc(1), 70));
+      disc(s.x, y, 3.6 * sc, v.i === newest ? acc(3) : mix(acc(0), 35 + 65 * v.env));
+      if (m === "LEG" && tieOn && v.gate) ring(s.x, y, 6 * sc, acc(2));
+      if ((m === "MONO" || m === "LEG") && s.i === 0)
+        held.forEach(h => { if (h !== v.note) ring(s.x - 6, bot - pn(h) * (bot - top), 1.8, acc(3)); });
+    } else disc(s.x, s.y - 3, 1.3 * sc, C.dim);
+  });
+  caret(cx, BY + ry + 10, acc(0), false);                                 /* the gate */
+}
+
+/* ================= C: TRACE ================= */
+const TW = 202, HIST = new Float32Array(TW * NV * 2).fill(-1);  /* per column, per voice: pitch, env */
+let col = 0, acc_t = 0;
+const TY0 = 6, TY1 = 122, py = p => TY1 - pn(p) * (TY1 - TY0);
+function traceTick(dt) {
+  acc_t += dt * 45;                                      /* 45 px/s */
+  while (acc_t >= 1) {
+    acc_t -= 1;
+    col = (col + 1) % TW;
+    for (let i = 0; i < NV; i++) {
+      const v = V[i], o = (col * NV + i) * 2;
+      HIST[o] = sounding(v) ? pitchOf(v, 3) : -1;
+      HIST[o + 1] = sounding(v) ? v.env + (v.i === newest && v.gate ? 10 : 0) + (v.age & 1 ? 20 : 0) : 0;
+    }
+  }
+}
+function drawTrace() {
+  clear();
+  const m = mode();
+  for (let o = 36; o <= 84; o += 12) {                                    /* octaves */
+    const y = Math.round(py(o)) + 0.5;
+    for (let x = 0; x < TW; x += 4) line(x, y, x + 1, y, C.line);
+  }
+  for (let i = 0; i < NV; i++) {
+    let prev = null;
+    for (let k = 0; k < TW; k++) {
+      const c = (col + 1 + k) % TW, o = (c * NV + i) * 2, p = HIST[o], e = HIST[o + 1];
+      if (p < 0) { prev = null; continue; }
+      const nw = e >= 10 && e % 20 >= 10, env = e % 10, par = Math.floor(e / 20);
+      const y = py(p);
+      if (prev && prev.par === par) line(k - 1, prev.y, k, y, nw ? acc(3) : mix(acc(0), 25 + 75 * env));
+      else if (m !== "LEG" || !prev) disc(k, y, 1.2, nw ? acc(3) : mix(acc(0), 25 + 75 * env));
+      if (prev && prev.par !== par && m === "LEG") line(k - 1, prev.y, k, y, mix(acc(0), 25 + 75 * env));
+      prev = { y, par };
+    }
+  }
+  /* the stereo field */
+  const SX = 222, SW = 13;
+  line(SX - SW - 3, TY0, SX - SW - 3, TY1, C.line);
+  line(SX, TY0, SX, TY1, C.line);
+  g.fillStyle = C.mid; g.font = "7px ui-monospace,Consolas,monospace"; g.textAlign = "center";
+  g.fillText("L", SX - SW, TY1 + 8); g.fillText("R", SX + SW, TY1 + 8);
+  caret(SX + P.PAN / 64 * SW, TY0 - 2, acc(2));
+  for (let i = 0; i < N; i++) {
+    const v = V[i];
+    if (!sounding(v)) continue;
+    const x = SX + v.pan * SW, y = py(pitchOf(v, 3));
+    line(TW, y, x, y, mix(ink(), 18 * v.env));
+    disc(x, y, 1.5 + 1.5 * v.env, v.i === newest ? acc(3) : mix(acc(3), 40 + 60 * v.env));
+  }
+  if (m === "MONO" || m === "LEG")
+    held.forEach(h => { if (h !== V[0].note) ring(TW - 4, py(h), 2, acc(3)); });
+  /* the slots */
+  const n = m === "MONO" || m === "LEG" ? 1 : N;
+  for (let i = 0; i < NV; i++) {
+    const x = 4 + i * 11, y = 129, v = V[i];
+    if (i >= N) continue;
+    if (i >= n) { g.strokeStyle = C.line; g.strokeRect(x + 0.5, y + 0.5, 8, 6); continue; }
+    if (v.gate) { g.fillStyle = i === newest ? acc(3) : acc(0); g.fillRect(x, y, 9, 7); }
+    else { g.strokeStyle = v.env > 0.004 ? mix(acc(0), 30 + 70 * v.env) : C.dim; g.strokeRect(x + 0.5, y + 0.5, 8, 6); }
+  }
+  if (m === "POLY") caret(4 + nextVoice(-99) * 11 + 4.5, 126, acc(0));
+}
+
+/* ================= from the knobs alone ================= */
+const kN = () => mode() === "POLY" || mode() === "UNI" ? N : 1;
+const kPan = i => Math.max(-1, Math.min(1, P.PAN / 64 + (kN() > 1 ? sl(i, N) * P.SPRD / 127 : 0)));
+function kCents(i) {                                     /* as step(): UNI +-50, POLY's drift +-12 */
+  const d = P.DTUNE / 127;
+  return mode() === "UNI" ? sl(i, N) * d * 50 : (i & 1 ? 1 : -1) * ((i * 37) % 7 + 3) / 9 * d * 12;
+}
+const kLit = () => mode() !== "POLY" ? -1 : P.ALLOC === 0 ? Math.floor(T * 2) % N : 0;   /* ALLOC's voice */
+const kPulse = () => 0.5 + 0.5 * Math.cos(T * 4 * Math.PI);                             /* a note twice a second */
+function kPrio() {                                       /* three keys held high, low, middle; which one sounds */
+  const ph = T % 2.4, lv = [3, 1, 2], c = ph < 0.4 ? 1 : ph < 0.8 ? 2 : 3, vis = lv.slice(0, c);
+  const win = P.PRIO === 0 ? c - 1 : vis.indexOf(P.PRIO === 1 ? Math.min(...vis) : Math.max(...vis));
+  return { vis, win };
+}
+const mono = () => mode() === "MONO" || mode() === "LEG";
+/* PRIO's queue as three little keys, x0 their left, base y; the one sounding filled */
+function prioKeys(x0, y) {
+  const q = kPrio();
+  q.vis.forEach((l, k) => {
+    const h = 3 + l * 4, x = x0 + k * 7;
+    if (k === q.win) { g.fillStyle = acc(3); g.fillRect(x, y - h, 5, h); }
+    else { g.strokeStyle = mix(acc(3), 55); g.strokeRect(x + 0.5, y - h + 0.5, 4, h - 1); }
+  });
+}
+
+/* D: ARC */
+function drawArc() {
+  clear();
+  const HX = 120, HY = 128, R = 104, n = kN(), m = mode(), lit = kLit();
+  g.strokeStyle = mix(ink(), 45); g.beginPath(); g.arc(HX, HY, R, Math.PI, 2 * Math.PI); g.stroke();
+  g.fillStyle = C.mid; g.font = "7px ui-monospace,Consolas,monospace"; g.textAlign = "center";
+  g.fillText("L", HX - R - 6, HY); g.fillText("R", HX + R + 6, HY);
+  ring(HX, HY, 10, mix(ink(), 90));                                        /* the head */
+  line(HX, HY - 10, HX, HY - 14, mix(ink(), 90));
+  ring(HX - 11, HY, 3, mix(ink(), 75)); ring(HX + 11, HY, 3, mix(ink(), 75));
+  const pa = P.PAN / 64 * 80 * Math.PI / 180, ux = Math.sin(pa), uy = -Math.cos(pa);   /* PAN: a triangle pointing at the head */
+  g.fillStyle = acc(2); g.beginPath();
+  g.moveTo(HX + ux * (R + 2), HY + uy * (R + 2));
+  g.lineTo(HX + ux * (R + 8) - uy * 3, HY + uy * (R + 8) + ux * 3);
+  g.lineTo(HX + ux * (R + 8) + uy * 3, HY + uy * (R + 8) - ux * 3);
+  g.fill();
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    /* DTUNE: each voice in or out by its own share, the same in POLY and UNI, up to 20 px, always inside the arc */
+    const d = n > 1 ? (i & 1 ? 1 : -1) * ((i * 37) % 7 + 3) / 9 : 0, th = kPan(i) * 80 * Math.PI / 180;
+    const r = R - 32 + d * P.DTUNE / 127 * 20;
+    pts.push([HX + Math.sin(th) * r, HY - Math.cos(th) * r, th, r]);
+  }
+  pts.forEach(([x, y, th, r], i) => {
+    line(HX + Math.sin(th) * 14, HY - Math.cos(th) * 14, x, y, mix(ink(), 35));
+    /* GLD: one arc round the head through the dot, its middle on the dot, up to 14 px either side, the same on every dot */
+    const s = (5 + P.GLD / 127 * 14) / r;
+    if (P.GLD > 0) {
+      g.strokeStyle = acc(1);
+      g.beginPath(); g.arc(HX, HY, r, th - Math.PI / 2 - s, th - Math.PI / 2 + s); g.stroke();
+    }
+  });
+  pts.forEach(([x, y]) => {
+    disc(x, y, 3, acc(0));
+    if (m === "LEG") { g.strokeStyle = acc(2); g.beginPath(); g.arc(x, y, 8, -Math.PI * 0.85, -Math.PI * 0.15); g.stroke(); }
+  });
+}
+
+/* E: PIPES */
+function drawPipes() {
+  clear();
+  const BY = 112, H0 = 72, n = kN(), m = mode(), lit = kLit();
+  const sp = n > 1 ? 13 + P.SPRD / 127 * 13 : 0, gw = sp * (n - 1);
+  const cx = 120 + P.PAN / 64 * Math.max(0, 104 - gw / 2);
+  line(8, BY + 8.5, 232, BY + 8.5, mix(ink(), 30));                       /* the wind chest */
+  line(8, BY + 14.5, 232, BY + 14.5, C.line);
+  caret(120 + P.PAN / 64 * 104, BY + 21, acc(2), false);
+  const bend = P.GLD / 127 * 14;
+  for (let i = 0; i < n; i++) {
+    const x = cx + (n > 1 ? sl(i, N) * gw / 2 : 0), w = n > 1 ? 3.5 : 8, c = kCents(i);
+    const h = H0 + (m === "UNI" ? c / 50 * 16 : m === "POLY" ? c / 12 * 6 : 0);
+    const dir = P.GLMOD === 1 && n > 1 ? -Math.sign(sl(i, N)) : 1;
+    const X = (s, y) => x + s * w + dir * bend * Math.pow((BY - y) / H0, 2);
+    const speak = m === "UNI" ? 1 : i === lit || mono();
+    let ci = mix(acc(0), 55);
+    if (m === "UNI") ci = mix(acc(0), 55 + 45 * (0.5 + 0.5 * Math.cos(T * 2 * Math.PI * (0.3 + Math.abs(c) / 50 * 2.5))));
+    else if (i === lit) ci = mix(acc(3), 60 + 40 * kPulse());
+    else if (mono()) ci = acc(0);
+    [-1, 1].forEach(s => {
+      const pts = [];
+      for (let k = 0; k <= 8; k++) { const y = BY - h * k / 8; pts.push([X(s, y), y]); }
+      poly(pts, ci);
+    });
+    line(X(-1, BY - h), BY - h, X(1, BY - h), BY - h, ci);
+    poly([[x - w, BY - 14], [x, BY - 10], [x + w, BY - 14]], ci);         /* the mouth */
+    poly([[x - w, BY], [x - 1, BY + 8], [x + 1, BY + 8], [x + w, BY]], ci); /* the foot */
+    if (m === "LEG") {
+      const y = BY - h * 0.45;
+      line(X(-1, y) - 3, y - 2, X(1, y) + 3, y - 2, acc(2));
+      line(X(-1, y) - 3, y + 2, X(1, y) + 3, y + 2, acc(2));
+    }
+    if (speak) {                                                          /* the air */
+      for (let k = 0; k < 3; k++) {
+        const f = (T * 0.8 + k / 3) % 1, tx = X(0, BY - h), ty = BY - h - 3 - f * 12;
+        g.strokeStyle = mix(ink(), 50 * (1 - f)); g.beginPath(); g.arc(tx, ty, 2 + f * 3, Math.PI * 1.2, Math.PI * 1.8); g.stroke();
+      }
+    }
+    if (mono()) prioKeys(x + w + 8, BY);
+  }
+}
+
+/* F: WAVES */
+const JUMP = [7, 12, -5, 4, -12, 5, 9, -7];
+function drawWaves() {
+  clear();
+  const m = mode(), uni = m === "UNI", n = kN(), lanes = uni ? 1 : n, lit = kLit();
+  const X0 = 8, X1 = 232, Y0 = 6, Y1 = 98, lh = (Y1 - Y0) / lanes, XM = 120;
+  for (let l = 0; l < lanes; l++) {
+    const cy = Y0 + lh * (l + 0.5), amp = lh * 0.4, jump = uni || mono() ? 7 : JUMP[l];
+    const W = P.GLD / 127 * 110 * (P.GLMOD === 1 ? 1 : Math.abs(jump) / 12);
+    const vs = uni ? N : 1, ph = new Float64Array(vs).fill(0), pts = [];
+    const f0 = uni ? 0.07 : 0.11 / Math.max(1, Math.sqrt(lanes) * 0.6);
+    for (let x = X0; x <= X1; x++) {
+      const t = W > 0 ? Math.max(0, Math.min(1, (x - (XM - W / 2)) / W)) : x >= XM ? 1 : 0;
+      const semis = jump * t;
+      let y = 0;
+      for (let v = 0; v < vs; v++) {
+        const c = uni ? kCents(v) * 4 : kCents(l);
+        ph[v] += 2 * Math.PI * f0 * Math.pow(2, (semis + c / 100) / 12);
+        y += Math.sin(ph[v] - T * 3);
+      }
+      y /= vs;
+      if (m === "MONO") y *= x < XM ? 1 : Math.min(1, (x - XM) / 8);    /* re-attacks at the jump */
+      pts.push([x, cy - y * amp]);
+    }
+    const on = l === lit;
+    poly(pts, on ? mix(acc(3), 60 + 40 * kPulse()) : mix(acc(0), uni || mono() ? 100 : 70));
+    if (W > 0) {                                                          /* the glide's span */
+      line(XM - W / 2, cy + amp + 1.5, XM + W / 2, cy + amp + 1.5, acc(1));
+    }
+    if (m === "LEG") { g.strokeStyle = acc(2); g.beginPath(); g.arc(XM, cy - amp - 2, 10, Math.PI * 1.15, Math.PI * 1.85); g.stroke(); }
+  }
+  /* L..R */
+  const SY = 116, SL = 24, SR = 216;
+  line(SL, SY + 0.5, SR, SY + 0.5, C.line);
+  g.fillStyle = C.mid; g.font = "7px ui-monospace,Consolas,monospace"; g.textAlign = "center";
+  g.fillText("L", SL - 8, SY + 3); g.fillText("R", SR + 8, SY + 3);
+  caret(120 + P.PAN / 64 * (SR - 120), SY + 9, acc(2), false);
+  for (let i = 0; i < n; i++) {
+    const x = 120 + kPan(i) * (SR - 120);
+    line(x, SY - 4, x, SY + 4, i === lit ? acc(3) : acc(0));
+  }
+  if (mono()) prioKeys(206, 136);
+}
+
+/* ================= the controls ================= */
+const out = {};
+function knobRow(k, idx) {
+  const d = document.createElement("div");
+  d.className = "k";
+  const nm = document.createElement("span");
+  nm.textContent = k;
+  nm.style.color = ACC[idx];
+  d.append(nm);
+  if (ENUM[k]) {
+    const s = document.createElement("div"); s.className = "seg";
+    ENUM[k].forEach((lab, v) => {
+      const b = document.createElement("button"); b.textContent = lab;
+      b.onclick = () => { set(k, v); [...s.children].forEach((x, j) => x.classList.toggle("on", j === v)); };
+      if (P[k] === v) b.classList.add("on");
+      s.append(b);
+    });
+    d.append(s, document.createElement("span"));
+  } else {
+    const r = document.createElement("input"); r.type = "range";
+    [r.min, r.max] = RANGE[k]; r.value = P[k];
+    const o = document.createElement("output"); out[k] = o; o.textContent = fmt(k, P[k]);
+    r.oninput = () => { set(k, +r.value); o.textContent = fmt(k, P[k]); };
+    d.append(r, o);
+  }
+  return d;
+}
+function set(k, v) {
+  if (k === "VCE" && v !== P.VCE) allOff();
+  P[k] = v;
+  if (out.GLD) out.GLD.textContent = fmt("GLD", P.GLD);
+}
+PAGES.forEach((pg, i) => pg.forEach((k, j) => document.getElementById("p" + (i + 1)).append(knobRow(k, j))));
+document.getElementById("pal").onchange = e => { pal = e.target.value; };
+document.getElementById("poly").onchange = e => { allOff(); N = +e.target.value; rot = 0; };
+
+/* the keyboard: C3..C5 */
+const kb = document.getElementById("kb"), keys = [], LO = 48, HI = 72, WHITE = [0, 2, 4, 5, 7, 9, 11];
+const nw = Math.round((HI - LO) / 12 * 7) + 1;
+for (let n = LO, w = 0; n <= HI; n++) {
+  const k = document.createElement("div"), isW = WHITE.includes(n % 12);
+  k.dataset.n = n;
+  if (isW) { w++; kb.append(k); }
+  else { k.className = "b"; k.style.left = `calc(${w / nw * 100}% - ${50 / nw * 0.6}%)`; k.style.width = `${100 / nw * 0.6}%`; kb.append(k); }
+  keys[n] = k;
+}
+const down = new Map();
+function press(n, id) { if (down.has(id)) return; down.set(id, n); keys[n] && keys[n].classList.add("on"); noteOn(n); }
+function release(id) { const n = down.get(id); if (n === undefined) return; down.delete(id); keys[n] && keys[n].classList.remove("on"); noteOff(n); }
+kb.onpointerdown = e => { const n = +e.target.dataset.n; if (!n) return; kb.setPointerCapture(e.pointerId); press(n, "p" + e.pointerId); };
+kb.onpointerup = kb.onpointercancel = e => release("p" + e.pointerId);
+const KM = "awsedftgyhujk";
+addEventListener("keydown", e => { const i = KM.indexOf(e.key.toLowerCase()); if (i >= 0 && !e.repeat) press(60 + i, "k" + e.key.toLowerCase()); });
+addEventListener("keyup", e => { const i = KM.indexOf(e.key.toLowerCase()); if (i >= 0) release("k" + e.key.toLowerCase()); });
+
+/* DEMO: chords, then a held bass under a line (to show PRIO / LEG), then leaps (GLD) */
+const SEQ = [];
+(function () {
+  const at = (t, n, d) => SEQ.push([t, n, d]);
+  [[48, 52, 55, 59], [45, 52, 57, 60], [41, 48, 53, 57], [43, 50, 55, 62]].forEach((c, j) => c.forEach((n, k) => at(j * 0.9 + k * 0.04, n, 0.75)));
+  at(3.8, 48, 2.4);
+  [60, 62, 64, 67, 64, 62].forEach((n, j) => at(4.0 + j * 0.35, n, 0.45));
+  [[48, 0.7], [72, 0.7], [55, 0.5], [67, 0.5], [43, 0.9]].forEach(([n, d], j) => at(6.6 + j * 0.65, n, d));
+})();
+const DEMO_LEN = 10.2;
+let demo = false, dT = 0, dOn = [];
+document.getElementById("demo").onclick = e => {
+  demo = !demo; e.target.classList.toggle("on", demo); dT = 0;
+  dOn.forEach(n => noteOff(n)); dOn = [];
+};
+function demoTick(dt) {
+  const t0 = dT; dT += dt;
+  SEQ.forEach(([t, n, d]) => {
+    if (t >= t0 && t < dT) { noteOn(n); dOn.push(n); keys[n] && keys[n].classList.add("on"); }
+    if (t + d >= t0 && t + d < dT) { noteOff(n); dOn = dOn.filter(x => x !== n); keys[n] && keys[n].classList.remove("on"); }
+  });
+  if (dT >= DEMO_LEN) dT = 0;
+}
+
+/* ================= the loop ================= */
+const cv = [0, 1, 2, 3, 4, 5].map(i => document.getElementById("c" + i).getContext("2d"));
+const DRAW = [drawStage, drawCarousel, drawTrace, drawArc, drawPipes, drawWaves];
+const st = document.getElementById("state");
+let tp = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - tp) / 1000);
+  tp = now; T += dt;
+  if (demo) demoTick(dt);
+  step(dt);
+  car.update(dt);
+  traceTick(dt);
+  cv.forEach((c, i) => { g = c; DRAW[i](); });
+  st.textContent = `${mode()} · held ${held.length ? held.join(" ") : "–"}`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

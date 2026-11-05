@@ -17,9 +17,10 @@ blends at palette_set() time (src/gfx.c, the same integer maths as mix() here):
   RAISE = mix(SURF, TEXT, 12 %) a raised area on a surface: empty step stubs, guides, the selected drum
                                 lane, fader slots, button wells, chips
   KEY  = mix(BG, TEXT, 78 %)    a keycap's fill (a mid-light cushion; its label INK, unavailable: a DIM fill)
-  INK  = BG: text on a selection or THEME fill (GREY, MONO: a light fill, dark ink)
-Outside the palette: REC, a fixed red (GREY, MONO: ACCENT); the QR code's fixed black and white; the crash
-screen's fixed red. GREY is pure grayscale (R = G = B) in every colour and every derived tint.
+  INK  = BG: text on a selection or THEME fill (MRC, MONO: a light fill, dark ink)
+Outside the palette: REC, a fixed red (MRC, MONO: ACCENT); the QR code's fixed black and white; the crash
+screen's fixed red. MRC's BG and SURF are pure grayscale (R = G = B); its TEXT and THEME are a cream, so the
+tints derived from them are not grey (the blend collapses to the red channel only between two grey colours).
 MONO is black and white: its tokens are not blended but set (src/gfx.c palette_set, bw() here): BG SURF
 TINT GRID black; TEXT THEME ACCENT MID SEL KEY white (a selection, a THEME or ACCENT fill, a keycap: white
 with black INK, an inversion); and one mid grey, BW_GREY, for DIM LINE RAISE LANE. That grey is the one
@@ -36,7 +37,7 @@ from pathlib import Path
 
 # name, bg, surf, text, theme, accent (8-bit RGB; stored as RGB565)
 PALETTES = [
-    ("GREY",   (14, 14, 14),    (36, 36, 36),    (204, 204, 204), (232, 232, 232), (255, 255, 255)),
+    ("MRC",    (20, 20, 20),    (30, 30, 30),    (228, 220, 200), (244, 236, 214), (61, 220, 151)),
     ("GREEN",  (6, 18, 10),     (16, 40, 26),    (226, 244, 230), (84, 214, 120),  (255, 214, 92)),
     ("AMBER",  (18, 14, 8),     (42, 32, 18),    (246, 236, 216), (255, 168, 40),  (96, 214, 230)),
     ("ICE",    (8, 16, 24),     (20, 36, 52),    (228, 240, 248), (80, 184, 236),  (255, 140, 100)),
@@ -47,7 +48,7 @@ PALETTES = [
     # appended (saved ids are indices: append only). #50, the 0.9 look: true black, green-tinted text and lines
     # (the derived MID / DIM / LINE are tints of TEXT), phosphor-green values, white for the one active thing
     ("NIGHT",  (0, 0, 0),       (0, 24, 10),     (150, 230, 170), (56, 220, 100),  (255, 255, 255)),
-    # 1.0.2: black and white (the derived tokens are set, not blended: bw()); the old MONO is GREY (id 0)
+    # 1.0.2: black and white (the derived tokens are set, not blended: bw()); the old MONO is MRC (id 0)
     ("MONO",   (0, 0, 0),       (0, 0, 0),       (255, 255, 255), (255, 255, 255), (255, 255, 255)),
 ]
 BW = "MONO"
@@ -55,7 +56,7 @@ BW_GREY = (82, 82, 82)             # MONO's one mid grey (RGB565 10/20/10): DIM 
 # the 20 palettes of the earlier firmware (index order) -> the new palette
 OLD = ["GREEN", "AMBER", "CYAN", "RED", "MONO", "VIOLET", "PINK", "ICE", "WARM", "OCEAN", "DUSK", "HI-CON",
        "LIGHT", "PAPER", "SKY", "MINT", "LILAC", "ROSE", "SAND", "L-HICON"]
-OLD_TO_NEW = {"GREEN": "GREEN", "AMBER": "AMBER", "CYAN": "ICE", "RED": "ROSE", "MONO": "GREY", "VIOLET": "VIOLET",
+OLD_TO_NEW = {"GREEN": "GREEN", "AMBER": "AMBER", "CYAN": "ICE", "RED": "ROSE", "MONO": "MRC", "VIOLET": "VIOLET",
               "PINK": "ROSE", "ICE": "ICE", "WARM": "AMBER", "OCEAN": "ICE", "DUSK": "VIOLET", "HI-CON": "HI-CON",
               "LIGHT": "PAPER", "PAPER": "PAPER", "SKY": "PAPER", "MINT": "PAPER", "LILAC": "PAPER", "ROSE": "PAPER",
               "SAND": "PAPER", "L-HICON": "HI-CON"}
@@ -81,9 +82,15 @@ def cdiv(a, b):
     return a // b if a >= 0 else -((-a) // b)
 
 
+def is_grey(c):
+    """src/gfx.c ux_is_grey: on the RGB565 gray axis (r == b, g == 2 r)"""
+    return (c >> 11) == (c & 31) and ((c >> 5) & 63) == 2 * (c & 31)
+
+
 def mix(a, b, pct, mono=False):
-    """src/gfx.c ux_mix: a + (b - a) * pct / 100 per channel, rounded; GREY, MONO on the 5-bit red channel"""
-    if mono:
+    """src/gfx.c ux_mix: a + (b - a) * pct / 100 per channel, rounded; MRC, MONO on the 5-bit red channel
+    (MRC: only between two grey colours, ux_is_grey)"""
+    if mono and is_grey(a) and is_grey(b):
         x, y = a >> 11, b >> 11
         d = (y - x) * pct
         v = x + cdiv(d + (50 if d >= 0 else -50), 100)
@@ -118,7 +125,7 @@ def contrast(a, b):
 def derive(p):
     name, *cols = p
     bg, surf, text, theme, accent = (to565(c, name == BW) for c in cols)
-    mono = name == "GREY"
+    mono = name == "MRC"
     d = dict(bg=bg, surf=surf, text=text, theme=theme, accent=accent,
              mid=mix(bg, text, PCT["MID"], mono), dim=mix(bg, text, PCT["DIM"], mono),
              line=mix(bg, text, PCT["LINE"], mono), sel=mix(bg, theme, PCT["SEL"], mono),
@@ -153,12 +160,12 @@ def main():
     ap.add_argument("--report", action="store_true")
     a = ap.parse_args()
     fails = []
-    assert PALETTES[0][0] == "GREY" and len(OLD) == 20 and len(PALETTES) <= 63
+    assert PALETTES[0][0] == "MRC" and len(OLD) == 20 and len(PALETTES) <= 63
     rows = [derive(p) for p in PALETTES]
     for name, d in rows:
-        if name == "GREY":
+        if name == "MRC":
             for k, v in d.items():
-                if k == "light":
+                if k not in ("bg", "surf"):              # TEXT, THEME (cream), ACCENT (a brand hue) and their tints are not grey
                     continue
                 if not (v >> 11 == v & 31 and ((v >> 5) & 63) == (v >> 11) << 1):
                     fails.append(f"{name} is not grayscale: {k} = {v:#06x}")

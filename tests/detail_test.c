@@ -69,15 +69,6 @@ static void kt(uint32_t role, int32_t s)
     memset(ui.enc_t, 0, sizeof ui.enc_t);
     turn(role, s);
 }
-static int listed(uint32_t c)                      /* SEQ > AUTOMATION lists row c (EVC) */
-{
-    uint16_t rw[EV_ROWS];
-    uint32_t n = ev_list(rw), r;
-    for (r = 0; r < n; r++)
-        if (rw[r] == c)
-            return 1;
-    return 0;
-}
 /* note-ons of track t over `blocks` blocks from PLAY (their velocities in vel[], at most nvel) */
 static uint32_t play(track_t *t, uint32_t blocks, uint8_t *vel, uint32_t nvel)
 {
@@ -104,18 +95,16 @@ static int page_cycle(void)
     ok &= str_eq(cur_page()->title, "DETAIL") && detail_on() && cur_page()->graph == GR_ROLL && ui.cursor == 4u &&
           song.seq_mode;
     press(B_SEQ); frames(320);
-    ok &= cur_page()->graph == GR_EVENTS && !detail_on();
-    press(B_SEQ); frames(320);
     ok &= str_eq(cur_page()->title, "STEP") && !detail_on();
-    bad += check("SEQ: STEP -> DETAIL (the same cursor) -> AUTOMATION -> STEP", ok);
+    bad += check("SEQ: STEP -> DETAIL (the same cursor) -> STEP (MRC: AUTOMATION is gone)", ok);
     go_detail();
     {
         char ti[20];
         page_title(ti);
-        ok = str_eq(ti, "DETAIL 2/3");
+        ok = str_eq(ti, "DETAIL 2/2");
     }
     ok &= help_page() && str_eq(help_page(), "[PRESETS]STEP[K1]CHANCE, 1:4, FILL");
-    bad += check("  its footer title DETAIL 2/3 (not the scale), its HELP hint", ok);
+    bad += check("  its footer title DETAIL 2/2 (not the scale), its HELP hint", ok);
     return bad;
 }
 
@@ -141,14 +130,13 @@ static int knobs(void)
     ok &= step_chance(&t->step[2]) == 90u && step_nudge(&t->step[2]) == 3 && t->step[2].vel == 80u &&
           t->step[2].n == 1u && t->step[2].note[0] == 64u && t->step[2].time == ST_NOTE && step_ratchet(&t->step[2]) == 1u;
     bad += check("  PRESETS walks the cursor; on step 3 CHANCE 90 %, NUDGE +3, VEL 80 (96 - 16), the note kept", ok);
-    ok = listed(EVC(EVK_RATCH, 0)) && listed(EVC(EVK_CHANCE, 0)) && listed(EVC(EVK_CHANCE, 2)) &&
-         listed(EVC(EVK_NUDGE, 2)) && !listed(EVC(EVK_RATCH, 2)) && !motion_count(t);
-    bad += check("  AUTOMATION lists them as rows (CHANCE, RATCH, NUDGE; no motion record used)", ok);
+    ok = step_ratchet(&t->step[0]) == 2u && step_chance(&t->step[0]) == 99u && step_ratchet(&t->step[2]) == 1u && !motion_count(t);
+    bad += check("  the fields are the steps' own (no motion record used)", ok);
     turn(EN_PRESET, -2);
     kt(EN_K2, -1);
     kt(EN_K1, 1);
-    ok = !listed(EVC(EVK_RATCH, 0)) && !listed(EVC(EVK_CHANCE, 0)) && !memcmp(&t->step[0], &ref[0], sizeof ref[0]);
-    bad += check("  turned back to x1 / 100 %: the step as it was, its rows gone from AUTOMATION", ok);
+    ok = !memcmp(&t->step[0], &ref[0], sizeof ref[0]);
+    bad += check("  turned back to x1 / 100 %: the step as it was", ok);
     kt(EN_K3, 100);
     kt(EN_K2, 9);
     ok = step_nudge(&t->step[0]) == 7 && step_ratchet(&t->step[0]) == 4u;
@@ -238,14 +226,6 @@ static int edit_undo(void)
     ok &= !memcmp(t->step, ref, sizeof ref);
     bad += check("EDIT: the step's CHANCE RATCH NUDGE VEL back to 100 % x1 0 96 (the note and the cursor stay; again: "
                  "NOTHING TO RESET); SAVE held brings them back", ok);
-    {   /* AUTOMATION's EDIT deletes a row of them one by one (1.2, unchanged) */
-        go_auto_top(); frame();
-        ok = auto_pick(EVC(EVK_RATCH, 0));
-        press(B_EDIT);
-        ok &= step_ratchet(&t->step[0]) == 1u && !listed(EVC(EVK_RATCH, 0)) && listed(EVC(EVK_CHANCE, 0)) &&
-              listed(EVC(EVK_NUDGE, 0)) && msg_is("DELETED");
-        bad += check("AUTOMATION: EDIT on a row deletes that entry alone (RATCH x1; the step's CHANCE and NUDGE stay)", ok);
-    }
     return bad;
 }
 

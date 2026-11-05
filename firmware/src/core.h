@@ -51,7 +51,7 @@
 enum {                          /* per-track parameters */
     P_LEVEL,
     P_ATK, P_DEC, P_SUS, P_REL,
-    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: unused, kept for the formats / protocol */
+    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: unused, kept for the formats / protocol; MRC: P_STRM */
     P_LRATE, P_LWAVE, P_LPHASE, P_LFADE,
     P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP,
     P_AMODE, P_ARATE, P_AOCT, P_AGATE,
@@ -81,6 +81,7 @@ enum {                          /* per-track parameters */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+#define P_STRM P_ED_FX                  /* MRC: SCL > CHORD's STRM in the unused slot (no format change) */
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
@@ -93,11 +94,9 @@ enum {                          /* global parameters */
                                  * unused (ids are fixed by the formats and the protocol) */
     G_CLRSEQ, G_INITSND,
     G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING, 2 HALL (1.2, the power-on default) (fx.c). Was
-                                 * G_DRCH, the GM drum part's MIDI channel (inert since 1.0, never read); projects
-                                 * of formats before FUN7 load it as ROOM (project.c proj_rtype_room) */
+                                 * G_DRCH, the GM drum part's MIDI channel (inert since 1.0, never read) */
     G_DRLVL, G_DRREV,           /* inert (label "-", on no page): the GM drum part they set is gone; kept
-                                 * because the ids and G_COUNT are fixed by the formats and the protocol (only
-                                 * the import of an old project reads them: proj_drums_to_part) */
+                                 * because the ids and G_COUNT are fixed by the format and the protocol */
     G_COUNT
 };
 
@@ -134,7 +133,7 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
  * (SET / GRAIN SRC 4 is an alias of PIANO, USR1..3 keep 5..7). A sound that selected it is the DRUM engine with
  * its default kit (eng_drum.c DRUM_PRESETS[0]: the same GM key map, so its patterns still play as drums): its E
  * values become the kit's, the rest of the sound (mix, sends, matrix, ..) stays. 1 = it was one (its engine is
- * ENGI_DRUM now); projects (project.c proj_perc), user presets (upreset.c up_migrate), factory preset 4 and
+ * ENGI_DRUM now); user presets (upreset.c up_migrate), factory preset 4 and
  * favourites (ui.c, settings_persist.c). Idempotent */
 #define ENGI_SAMPLE 4u
 #define SMP_SET_PERC 4u
@@ -171,10 +170,6 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
     uint8_t acc;                 /* bit l: that hit is accented (velocity 127) */
     uint8_t probability;         /* 0 = legacy 100%; 1..100 = percent, 101 = silent; 1.5.5: 102..112 a condition */
 } step_t;
-typedef struct {                 /* a step as formats 1..4 (projects to FUN4) stored it: no hits */
-    uint8_t note[4];
-    uint8_t n, time, flags, vel;
-} step8_t;
 
 /* Probability keeps zero-initialized and legacy patterns at 100%. */
 /* 1.5.5 (#209): CONDITIONS, in the chance byte's free values (no format change): COND_FIRST + c - 1 is condition c
@@ -215,7 +210,7 @@ static void step_set_ratchet(step_t *s, uint32_t hits)
  * live recording keeps it, SEQ > AUTOMATION's NUDGE rows and STEP (steps held + PRESETS) set it, the track's QUANTIZE
  * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick).
  * Four bits of the flags no other field uses: 4 (bit 3 of the nudge, its sign) and 32 64 128 (bits 0..2). 0 = on the
- * step: every older pattern. A user preset's pattern keeps none (upreset.c up_pat_norm) */
+ * step: every older pattern. A user preset's pattern of upstream kept none (MRC: it keeps no pattern) */
 #define NUDGE_DIV 16
 #define SF_NUDGE (4u | 0xE0u)
 static int32_t step_nudge(const step_t *s)
@@ -239,21 +234,28 @@ typedef struct { uint8_t place, param; int8_t value; } motion_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;
 _Static_assert(sizeof(motion_store_t) == 388u, "motion disk layout (FUN10)");
 #define CHAIN_ROWS 16u
-/* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
- * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot
- * (chain_v9_t, FUN6..FUN9): it loads as a section with the four on it (song_chain.c chain_from_v9) */
-#define CHAIN_SILENT 4u
+/* A song section (1.2, FUN10): what each track plays and its repeats (1..16). MRC: a saved pattern (pattern.c, 0 ..
+ * NPAT - 1, P01..P24; CHAIN_SILENT "-": that track plays nothing there), marked by kind CHAIN_KIND_PAT in a byte
+ * upstream wrote 0; upstream's sections named PROJECT slots (0..3, A..D; 4 silent) and up to 1.1 a row was {slot,
+ * repeat}: such a song loads as none (project.c proj_unpack), the slots are gone */
+#define CHAIN_SILENT 0xFFu
+#define CHAIN_KIND_PAT 1u
 typedef struct { uint8_t slot[NTRK], repeat; } chain_row_t;
 typedef struct {
-    uint8_t count, rsv[3];
+    uint8_t count, kind, rsv[2];
     chain_row_t row[CHAIN_ROWS];
 } chain_config_t;
-typedef struct { uint8_t slot, repeat; } chain_row_v9_t;   /* frozen: the rows of FUN6..FUN9 */
+_Static_assert(sizeof(chain_config_t) == 84u, "song chain layout (FUN10)");
+/* MRC: the saved patterns (pattern.c): NPAT of them, P01..P24, each one track's steps and LEN DIV SWING GATE QUANTIZE.
+ * pat_info_t: what the UI and SONG read of one without the flash (pattern.c pat_mirror) */
+#define NPAT 24u
 typedef struct {
-    uint8_t count, rsv[3];
-    chain_row_v9_t row[CHAIN_ROWS];
-} chain_v9_t;
-_Static_assert(sizeof(chain_config_t) == 84u && sizeof(chain_v9_t) == 36u, "song chain layouts (FUN10 / FUN6..FUN9)");
+    uint8_t used;
+    uint8_t cells;                                /* SONG's picture: its cells (min(LEN, 16)), */
+    uint16_t len48;                               /* .. its length as SONG plays it (1/48 quarters), */
+    uint32_t den;                                 /* .. and 2 bits a cell (pattern.c pat_density) */
+    char name[13];
+} pat_info_t;
 
 typedef struct track {
     int16_t p[P_COUNT];
@@ -345,7 +347,7 @@ typedef struct {
     int16_t g[G_COUNT];
     uint8_t playing, seq_mode;
     uint8_t grid;                /* 1: the keys are the DRUM grid (ui.c grid_on): only the lane keys play (seq.c);
-                                  * 2: NAME (ui_name.c): no key plays; 3: SONG, A..D are its (seq.c song_key) */
+                                  * 2: NAME (ui_name.c): no key plays (MRC: 3, SONG's A..D, is gone) */
     uint8_t rec;                 /* live recording armed: bit per track */
     uint8_t sel;                 /* selected track 0..NTRK-1: keys, pages, editor */
     int8_t octave;

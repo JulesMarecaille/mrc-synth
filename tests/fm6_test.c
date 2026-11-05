@@ -21,6 +21,7 @@
  * 8. demos into DEMODIR: every factory preset playing its suggested pattern. */
 #define main hostsim_main
 #include "hostsim.c"
+#include "mrc_fixture.h"                         /* (MRC: upstream's factory patterns, the demos' lines) */
 #undef main
 #ifdef __APPLE__
 #include <libproc.h>

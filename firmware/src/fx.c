@@ -555,6 +555,13 @@ static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t 
     fx.rtype = (uint8_t)rt;
 }
 
+/* MRC: when the latest notes began, on the delay line's own write count, so an echo and its circle (ui_graph.c
+ * graph_delay) keep one clock. The notes of one block are one drop (a chord: one ball), wet when any of them is
+ * sent to the delay: a dry one has no echo to show */
+#define DROP_N 16u
+static uint32_t dly_drop[DROP_N], dly_drop_w;
+static uint8_t dly_drop_wet[DROP_N];
+
 /* process the three buses for one block; sends in, wet stereo-equal out */
 static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
                      uint32_t n)
@@ -567,6 +574,11 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
     if (pf.ew1 && fb < THR_FB)
         fb += mulq16(THR_FB - fb, (uint32_t)pf.ew1 << 1);   /* ECHO THROW (perform.c): more feedback while held, 0.7
                                                              * at most (the loop's gain below 1: it never runs away) */
+    if (note_drop) {
+        dly_drop[dly_drop_w & (DROP_N - 1u)] = fx.dly_w;
+        dly_drop_wet[dly_drop_w++ & (DROP_N - 1u)] = note_drop >> 1;
+        note_drop = 0;
+    }
     for (i = 0; i < n; i++) {
         int32_t y = 0, x, r;
         /* chorus: modulated short delay, 5..15 ms */

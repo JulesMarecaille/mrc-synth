@@ -1,3 +1,14 @@
+# MRC Synth licensing
+
+MRC Synth is a modified version of Felucca by Leo Kuroshita (Hügelton Instruments), released
+under the same licence, GPL-3.0-only. The modifications are listed in `CHANGES.md` and
+in the git history. Everything below is Felucca's licensing and
+still applies; MRC Synth adds no new third-party material.
+
+Modifications Copyright (C) 2026 Jules Marécaille
+
+Source: <https://github.com/JulesMarecaille/mrc-synth>
+
 # Felucca licensing
 
 Felucca is free software, licensed under the GNU General Public License, version 3 only

@@ -1,0 +1,1209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NOISE Visuals</title>
+<style>
+  :root { --bg:#141414; --surf:#1f1f1f; --raise:#2a2a2a; --text:#E4DCC8; --mid:#8a8578; --dim:#4a4740; --line:#2e2c28;
+          --a1:#FBE8A6; --a2:#F3BA5A; --a3:#F79B7A; --a4:#EB5560; --cw:480px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace,Consolas,monospace; }
+  main { max-width:1520px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:15px; letter-spacing:.12em; margin:0 0 4px; color:var(--a2); }
+  p.sub { margin:0 0 14px; color:var(--mid); max-width:900px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0; }
+  .row .gap { width:12px; }
+  .row label { color:var(--mid); display:flex; gap:6px; align-items:center; }
+  button, select { background:var(--raise); color:var(--text); border:1px solid var(--dim); border-radius:6px;
+                   font:inherit; padding:6px 10px; cursor:pointer; }
+  button:hover { border-color:var(--mid); }
+  button.on { background:var(--a2); color:#141414; border-color:var(--a2); }
+  #modes button { min-width:64px; letter-spacing:.08em; }
+  #modes button.on { background:var(--a1); border-color:var(--a1); }
+  #play { background:var(--a4); color:#141414; border-color:var(--a4); font-weight:bold; padding:8px 20px; user-select:none; touch-action:none; }
+  #play.held { background:var(--a1); border-color:var(--a1); }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, var(--cw)), 1fr)); gap:18px; margin:14px 0 18px; }
+  .card { min-width:0; }
+  .card h2 { font-size:13px; font-weight:normal; margin:0 0 6px; color:var(--mid); letter-spacing:.06em; }
+  .card h2 b { color:var(--text); font-weight:600; }
+  .screen { background:#000; padding:6px; border-radius:8px; display:inline-block; max-width:100%; }
+  .screen canvas { display:block; width:var(--cw); max-width:100%; aspect-ratio:240/140; image-rendering:pixelated; }
+  .card ul { margin:8px 0 0; padding-left:16px; color:var(--mid); font-size:12px; }
+  .card li { margin:1px 0; }
+  .card li b { font-weight:600; }
+  .pages { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:14px; }
+  fieldset { border:1px solid var(--line); border-radius:8px; padding:8px 12px 10px; margin:0; background:var(--surf); }
+  legend { color:var(--mid); padding:0 6px; }
+  .k { display:grid; grid-template-columns:48px 1fr 70px; gap:8px; align-items:center; margin:5px 0; }
+  .k b { font-weight:600; }
+  .k span { text-align:right; color:var(--text); }
+  .k input { width:100%; }
+  .k select { width:100%; padding:3px 6px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:10px; }
+  kbd { border:1px solid var(--dim); border-radius:3px; padding:0 4px; color:var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <h1>NOISE · EDIT DRAWINGS</h1>
+  <p class="sub">Three generative drawings per MODE, at the panel's 240 × 140 and the MRC accents. Hold <kbd>PLAY</kbd>
+    (or <kbd>Space</kbd>, or the keys <kbd>A</kbd>…<kbd>K</kbd>), or turn on <kbd>AUTO</kbd>, and turn the knobs below.
+    Silent, each drawing holds still and shows the knobs; the sound brings it to life.</p>
+
+  <div class="row" id="modes"></div>
+
+  <div class="row">
+    <button id="play">PLAY</button>
+    <button id="latch">LATCH</button>
+    <button id="auto">AUTO</button>
+    <button id="sound" class="on">SOUND ON</button>
+    <label>note <select id="note"></select></label>
+    <span class="gap"></span>
+    <span style="color:var(--mid)">presets</span><span id="presets" class="row" style="margin:0"></span>
+    <span class="gap"></span>
+    <label>zoom <select id="zoom"><option>1</option><option>1.5</option><option selected>2</option><option>3</option></select></label>
+    <label>palette <select id="pal"><option value="mrc">MRC (accents)</option><option value="mono">other (one colour)</option></select></label>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="pages">
+    <fieldset><legend>EDIT 1 · SRC</legend><div id="p1"></div></fieldset>
+    <fieldset><legend>EDIT 2 · MOVE</legend><div id="p2"></div></fieldset>
+  </div>
+  <p class="hint">The sound is a JavaScript port of <code>eng_noise.c</code> (the four sources, COLR's pink and brown, the
+    trapezoidal SVF from low-pass to band-pass, DRFT, CRSH), with the preset's ADSR. The drawings take the knobs, the
+    amp envelope, the drift, the real impulses (ANLG, DUST) and the scope samples; LFSR and META clock their own
+    register / sequence at a rate that follows the key and CLK, slowed to something the eye can follow.</p>
+</main>
+
+<script>
+/* ================= the engine's tables (eng_noise.c) ================= */
+const MODES = ["ANLG", "DUST", "LFSR", "META"];
+const LONG_N = ["L23", "L20", "L17", "L15", "L13", "L11", "L9", "L7"];
+const META_N = ["127", "127B", "93", "63", "63B", "31", "15", "7"];
+const TAPS = [0x420000, 0x90000, (1 << 16) | (1 << 13), 0x6000, 0x100D, 0x500, 0x110, 0x60];
+const NBITS = [23, 20, 17, 15, 13, 11, 9, 7];
+const SEQ = [
+  { w: [0xD13C50C1, 0x91C2F95C, 0xA58DED6C, 0x01FD533B], len: 127, hi: 16128, lo: -16384 },
+  { w: [0xDBD165F1, 0x9E46A1FD, 0x84C15692, 0x019B1CEB], len: 127, hi: 16128, lo: -16384 },
+  { w: [0x41008001, 0x00492402, 0x00824824, 0x00000000], len: 93, hi: 16384, lo: -3404 },
+  { w: [0x27179461, 0x03F566ED, 0, 0], len: 63, hi: 15872, lo: -16384 },
+  { w: [0x75A6C487, 0x02FCA8CF, 0, 0], len: 63, hi: 15872, lo: -16384 },
+  { w: [0x05763E69, 0, 0, 0], len: 31, hi: 15360, lo: -16384 },
+  { w: [0x00000F59, 0, 0, 0], len: 15, hi: 14336, lo: -16384 },
+  { w: [0x0000001D, 0, 0, 0], len: 7, hi: 12288, lo: -16384 },
+];
+const seqBit = (s, j) => (s.w[j >> 5] >>> (j & 31)) & 1;
+
+/* {MODE, COLR, FREQ, RES, TRK, DENS, DRFT, CRSH / CLK}, the ADSR */
+const PRESETS = {
+  WIND:   { p: [0, 64, 70, 100, 127, 0, 70, 0],   adsr: [90, 90, 110, 90] },
+  RAIN:   { p: [1, 30, 88, 80, 64, 105, 40, 0],   adsr: [10, 90, 127, 70] },
+  ARCADE: { p: [2, 0, 127, 0, 127, 112, 0, 84],   adsr: [0, 80, 0, 50] },
+  METAL:  { p: [3, 0, 100, 40, 100, 32, 0, 0],    adsr: [0, 75, 40, 60] },
+};
+const P = [0, 64, 80, 30, 64, 0, 0, 0];
+let ADSR = [10, 80, 100, 50];
+
+/* ================= envelope (the page and the worklet) ================= */
+function envRate(v, slow) { return 1 / (0.002 + Math.pow(v / 127, 2) * slow); }
+function envStep(e, dt, adsr) {
+  const a = adsr[0], d = adsr[1], sl = adsr[2] / 127, r = adsr[3];
+  if (e.stage === 1) { e.lvl += dt * envRate(a, 3); if (e.lvl >= 1) { e.lvl = 1; e.stage = 2; } }
+  else if (e.stage === 2) { e.lvl += (sl - e.lvl) * Math.min(1, dt * envRate(d, 2.5) * 3); }
+  else if (e.stage === 3) { e.lvl -= e.lvl * Math.min(1, dt * envRate(r, 3) * 3); if (e.lvl < 1e-4) { e.lvl = 0; e.stage = 0; } }
+}
+
+/* ================= the sound: eng_noise.c in floats ================= */
+const WORKLET = `
+const TAPS = ${JSON.stringify(TAPS)}, SEQ = ${JSON.stringify(SEQ)};
+${envRate.toString()}
+${envStep.toString()}
+class NZ extends AudioWorkletProcessor {
+  constructor() {
+    super(); this.p = [0, 64, 80, 30, 64, 0, 0, 0]; this.adsr = [10, 80, 100, 50]; this.note = 48;
+    this.e = { lvl: 0, stage: 0 }; this.imp = []; this.post = 0; this.dSt = 0; this.reset();
+    this.port.onmessage = m => { const d = m.data;
+      if (d.p) { this.p = d.p; this.adsr = d.adsr; }
+      if (d.gate === true) { this.note = d.note; this.reset(); this.e.stage = 1; }
+      else if (d.gate === false && this.e.stage) this.e.stage = 3; };
+  }
+  reset() {   /* noise_note_on: the generator seeded by the note */
+    this.rng = (Math.imul(this.note + 1, 0x9E3779B9) | 0) || 1;
+    this.ic1 = this.ic2 = this.b0 = this.b1 = this.b2 = this.br = 0;
+    this.ph = 0; this.reg = 0; this.dc = 0; this.hold = 0; this.held = 0; this.drift = 0; this.tg = 0; this.cnt = 0;
+  }
+  r32() { let x = this.rng; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; this.rng = x; return x >>> 0; }
+  process(_, outs) {
+    const o = outs[0][0], p = this.p, sr = sampleRate, n = o.length;
+    const mode = p[0] & 3, sel = (p[5] >> 4) & 7, res = p[3], drft = p[6], crsh = mode < 2 ? p[7] : 0, c = p[1];
+    let gain = 1, dSt = 0;
+    if (drft) {   /* a new random target every 0.7..3 s, followed with a 0.7 s lag (per 32-sample block) */
+      for (let b = 0; b < n; b += 32) {
+        if (--this.cnt <= 0) { const r = this.r32(); this.tg = ((r >>> 16) - 32768) / 32768; this.cnt = 1024 + (r & 3071); }
+        this.drift += (this.tg - this.drift) / 1024;
+      }
+      dSt = this.drift * drft * drft / 1024;
+      gain = 1 - (1 - this.drift) / 2 * drft / 256;
+    }
+    this.dSt = dSt;
+    const cf = c <= 64 ? c / 64 : (c - 64) * 520 / 32768;
+    let cut = p[2] + (this.note - 60) * p[4] * 0.0092163 + dSt * 1.1682;
+    cut = Math.max(0, Math.min(127, cut));
+    const fc = Math.min(30 * Math.pow(16000 / 30, cut / 127), 0.45 * sr);
+    const g = Math.tan(Math.PI * fc / sr), k = (8192 - res * 7800 / 127) / 4096;
+    const a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2, bpg = 1.5 * Math.sqrt(k), mix = res * 258 / 32768;
+    const wf = (32767 - c * 230) / 32768;
+    let mk = Math.floor(127 - cut) * 7 * wf + 214 + (mode === 1 ? 512 : 0);
+    if (mk > 1279) mk = 1279;
+    const gq = Math.min(16, Math.pow(2, mk / 256) * gain);
+    let thr = 0;
+    if (mode <= 1 && p[5]) thr = Math.pow(2, p[5] * 22 / 256) * 65536 / sr;
+    let inc = 0, taps = TAPS[sel], seq = SEQ[sel];
+    if (mode >= 2) inc = Math.min(1, 440 * Math.pow(2, (this.note + p[7] + dSt - 69) / 12) / sr);
+    if (mode === 2) {
+      let mask = taps; mask |= mask >>> 1; mask |= mask >>> 2; mask |= mask >>> 4; mask |= mask >>> 8; mask |= mask >>> 16;
+      if (!(this.reg & mask)) this.reg = ((this.rng | 1) >>> 0);
+      this.reg = (this.reg & mask) >>> 0;
+    }
+    const audible = this.e.lvl > 0.002 || this.e.stage === 1;
+    for (let i = 0; i < n; i++) {
+      if ((i & 31) === 0) envStep(this.e, 32 / sr, this.adsr);
+      let w;
+      if (mode < 2) {
+        const r = this.r32();
+        w = mode === 0 ? ((r >>> 17) - 16384) / 32768 : 0;
+        if ((r & 0xFFFF) < thr) {
+          const a = (8192 + ((r >>> 18) & 0x7FFF)) / 32768;
+          w += (r & 0x20000) ? a : -a;
+          if (audible && this.imp.length < 24) this.imp.push(a / 1.25);
+        }
+      } else if (mode === 2) {
+        this.ph += inc;
+        if (this.ph >= 1) { this.ph -= 1; this.reg = ((this.reg >>> 1) ^ (-(this.reg & 1) & taps)) >>> 0; }
+        w = (this.reg & 1) ? 0.3662 : -0.3662;
+      } else {
+        const j = Math.min(seq.len - 1, Math.floor(this.ph * seq.len));
+        this.ph += inc; if (this.ph >= 1) this.ph -= 1;
+        w = (((seq.w[j >> 5] >>> (j & 31)) & 1) ? seq.hi : seq.lo) / 32768;
+      }
+      let x = w;
+      if (c) {   /* pink: three leaky poles (Kellet), brown: a leaky integrator */
+        this.b0 = this.b0 * 0.997620 + w * 0.099030;
+        this.b1 = this.b1 * 0.962982 + w * 0.296509;
+        this.b2 = this.b2 * 0.570007 + w * 1.052673;
+        const pk = (this.b0 + this.b1 + this.b2 + w * 0.184784) / 4;
+        if (c <= 64) x = w + (pk - w) * cf;
+        else { this.br = this.br * 0.994263 + w * 0.106201; x = pk + (this.br - pk) * cf; }
+      }
+      const v3 = x - this.ic2;
+      const v1 = a1 * this.ic1 + a2 * v3, v2 = this.ic2 + a2 * this.ic1 + a3 * v3;
+      this.ic1 = Math.max(-4.5, Math.min(4.5, 2 * v1 - this.ic1));
+      this.ic2 = Math.max(-4.5, Math.min(4.5, 2 * v2 - this.ic2));
+      let y = v2 + (v1 * bpg - v2) * mix;
+      y *= gq;
+      const ay = Math.abs(y), kn = 0.7324;
+      if (ay > kn) y = Math.sign(y) * (kn + 0.5 * Math.tanh((ay - kn) * 2));
+      if (mode === 3) { this.dc += (y - this.dc) / 512; y -= this.dc; }
+      if (crsh) {   /* hold 1..16 samples, 16 .. 4 bits */
+        if (--this.hold <= 0) { this.hold = 1 + (crsh >> 3); const s = Math.floor(crsh / 11); this.held = ((Math.round(y * 32768) >> s) << s) / 32768; }
+        y = this.held;
+      }
+      o[i] = y * this.e.lvl * 0.45;
+    }
+    if ((this.post += n) >= 512) {
+      this.post = 0;
+      this.port.postMessage({ lvl: this.e.lvl, drift: drft ? this.drift : 0, dSt: this.dSt, imp: this.imp });
+      this.imp = [];
+    }
+    return true;
+  }
+}
+registerProcessor("nz", NZ);`;
+
+let ac = null, node = null, an = null, mute = null, soundOn = true;
+const wl = { lvl: 0, drift: 0, dSt: 0, at: -1e9 };
+const pendingImp = [];
+async function ensureAudio() {
+  if (ac) { if (ac.state !== "running") await ac.resume(); return; }
+  ac = new AudioContext();
+  if (!ac.audioWorklet) { console.warn("no AudioWorklet (open over http://localhost): drawings only"); return; }
+  await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+  node = new AudioWorkletNode(ac, "nz");
+  an = ac.createAnalyser(); an.fftSize = 1024;
+  mute = ac.createGain(); mute.gain.value = soundOn ? 1 : 0;
+  node.connect(an); an.connect(mute).connect(ac.destination);
+  node.port.onmessage = m => {
+    const d = m.data; wl.lvl = d.lvl; wl.drift = d.drift; wl.dSt = d.dSt; wl.at = performance.now();
+    for (const a of d.imp) if (pendingImp.length < 64) pendingImp.push(a);
+  };
+  sync();
+}
+function sync() { if (node) node.port.postMessage({ p: P.slice(), adsr: ADSR }); }
+
+/* ================= notes ================= */
+const env = { lvl: 0, stage: 0 };     /* the page's own copy, for when there is no worklet */
+let curNote = 48, noteFlag = false, latched = false, autoT = null;
+const playBtn = document.getElementById("play");
+function noteOn(nt) {
+  curNote = nt; env.stage = 1; noteFlag = true; playBtn.classList.add("held");
+  ensureAudio().then(() => node && node.port.postMessage({ gate: true, note: nt }));
+}
+function noteOff() {
+  if (env.stage) env.stage = 3; playBtn.classList.remove("held");
+  if (node) node.port.postMessage({ gate: false });
+}
+const baseNote = () => +document.getElementById("note").value;
+playBtn.addEventListener("pointerdown", e => { e.preventDefault(); if (latched && env.stage && env.stage !== 3) noteOff(); else noteOn(baseNote()); });
+playBtn.addEventListener("pointerup", () => { if (!latched) noteOff(); });
+playBtn.addEventListener("pointerleave", () => { if (!latched && playBtn.classList.contains("held")) noteOff(); });
+addEventListener("pointerup", () => { const a = document.activeElement; if (a && a.tagName === "BUTTON") a.blur(); });   /* Space plays, never re-clicks */
+const KEYS = "awsedftgyhujk";
+let keyHeld = null;
+addEventListener("keydown", e => {
+  if (e.repeat || e.target.tagName === "SELECT" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.code === "Space") { e.preventDefault(); if (latched && env.stage && env.stage !== 3) noteOff(); else noteOn(baseNote()); return; }
+  const i = KEYS.indexOf(e.key.toLowerCase());
+  if (i >= 0) { keyHeld = e.key.toLowerCase(); noteOn(baseNote() + i); }
+});
+addEventListener("keyup", e => {
+  if (e.code === "Space" && !latched) noteOff();
+  if (e.key.toLowerCase() === keyHeld && !latched) { keyHeld = null; noteOff(); }
+});
+document.getElementById("latch").onclick = e => {
+  latched = !latched; e.target.classList.toggle("on", latched); if (!latched) noteOff();
+};
+document.getElementById("auto").onclick = e => {
+  if (autoT) { clearTimeout(autoT); autoT = null; noteOff(); e.target.classList.remove("on"); return; }
+  e.target.classList.add("on");
+  const step = () => {
+    noteOn(baseNote() + [0, 0, 3, 5, 7, 10, 12, -5][(Math.random() * 8) | 0]);
+    const on = 300 + Math.random() * 1100;
+    autoT = setTimeout(() => { noteOff(); autoT = setTimeout(step, 150 + Math.random() * 600); }, on);
+  };
+  step();
+};
+document.getElementById("sound").onclick = e => {
+  soundOn = !soundOn; e.target.classList.toggle("on", soundOn); e.target.textContent = soundOn ? "SOUND ON" : "SOUND OFF";
+  if (mute) mute.gain.value = soundOn ? 1 : 0;
+};
+const noteSel = document.getElementById("note");
+[["C2", 36], ["G2", 43], ["C3", 48], ["G3", 55], ["C4", 60], ["G4", 67], ["C5", 72]].forEach(([n, m]) =>
+  noteSel.insertAdjacentHTML("beforeend", `<option value="${m}" ${m === 48 ? "selected" : ""}>${n}</option>`));
+
+/* ================= value noise, fBm with COLR's tilt ================= */
+const PERM = (() => {
+  const a = [...Array(256).keys()]; let s = 1234567;
+  for (let i = 255; i > 0; i--) { s = (Math.imul(s, 1103515245) + 12345) >>> 0; const j = s % (i + 1); [a[i], a[j]] = [a[j], a[i]]; }
+  const p = new Uint8Array(512); for (let i = 0; i < 512; i++) p[i] = a[i & 255]; return p;
+})();
+function vn(x, y, z) {
+  let xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  xi &= 255; yi &= 255; zi &= 255;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+  const xa = PERM[xi], xb = PERM[xi + 1];
+  const aa = PERM[xa + yi], ab = PERM[xa + yi + 1], ba = PERM[xb + yi], bb = PERM[xb + yi + 1];
+  const l = (p, q, t) => p + (q - p) * t;
+  const r = l(l(l(PERM[aa + zi], PERM[ba + zi], u), l(PERM[ab + zi], PERM[bb + zi], u), v),
+              l(l(PERM[aa + zi + 1], PERM[ba + zi + 1], u), l(PERM[ab + zi + 1], PERM[bb + zi + 1], u), v), w);
+  return r / 127.5 - 1;
+}
+/* octave gains: white 0 dB / octave, pink -3 dB, brown -6 dB (tilt 0, 1, 2) */
+function fbm(x, y, z, tilt, oct) {
+  const k = Math.pow(2, -tilt / 2); let s = 0, a = 1, n = 0, f = 1;
+  for (let o = 0; o < oct; o++) { s += a * vn(x * f + o * 31.7, y * f + o * 17.3, z * f); n += a; a *= k; f *= 2.03; }
+  return s / n;
+}
+
+/* ================= helpers ================= */
+const W = 240, H = 140;
+const C = { bg: "#141414", text: "#E4DCC8", mid: "#8a8578", dim: "#4a4740" };
+const ACC = ["#FBE8A6", "#F3BA5A", "#F79B7A", "#EB5560"];
+let pal = "mrc";
+const K = i => pal === "mrc" ? ACC[i & 3] : C.text;    /* knob k's accent (k % 4), or THEME in the other palettes */
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, t) => a + (b - a) * t;
+const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.15;
+let g = null;   /* the card being drawn */
+function setA(a) { g.globalAlpha = clamp(a, 0, 1); }
+function poly(pts, col, a, w = 1, close = false) {
+  if (a <= 0.01 || pts.length < 4) return;
+  setA(a); g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]);
+  if (close) g.closePath();
+  g.stroke();
+}
+const lfsrStep = (r, taps) => ((r >>> 1) ^ (-(r & 1) & taps)) >>> 0;
+
+/* a bit stream or a waveform through COLR's tilt and the SVF, on the drawing's own scale:
+ * fc in cycles a sample, the colour a leaky pole for pink and one for brown */
+function chain(xs, fc, colN, resN) {
+  const gg = Math.tan(Math.PI * Math.min(fc, 0.45)), k = 2 - 1.9 * resN;
+  const a1 = 1 / (1 + gg * (gg + k)), a2 = gg * a1, a3 = gg * a2, bpg = 1.5 * Math.sqrt(k);
+  let pk = 0, br = 0, ic1 = 0, ic2 = 0;
+  const out = new Float32Array(xs.length);
+  for (let i = 0; i < xs.length; i++) {
+    const w = xs[i];
+    pk = pk * 0.7 + w * 0.3; br = br * 0.9 + w * 0.1;
+    const x = colN <= 0.5 ? lerp(w, pk * 1.4, colN * 2) : lerp(pk * 1.4, br * 2.6, (colN - 0.5) * 2);
+    const v3 = x - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3;
+    ic1 = 2 * v1 - ic1; ic2 = 2 * v2 - ic2;
+    out[i] = v2 + (v1 * bpg - v2) * resN;
+  }
+  return out;
+}
+
+/* ================= the frame state every drawing reads ================= */
+const S = {
+  t: 0, dt: 0, tp: 0, rot: 0, clkAcc: 0, frac: 0, steps: 0, aud: 0, lvl: 0, mv: 0, ev: [], noteOn: false, seed: 1,
+  buf: new Float32Array(1024),
+  smp(i) { return clamp(this.buf[(i * 31) & 1023] * 3, -1, 1); },
+  sn(v) { const q = this.q; return q > 1 ? (Math.floor(v / q) + 0.5) * q : v; },
+  qa(a) { if (this.q <= 1) return a; const L = Math.max(2, Math.round(9 - 7 * this.crN)); return Math.round(a * L) / L; },
+};
+function updateS(dt, now) {
+  S.dt = dt; S.t += dt;
+  envStep(env, dt, ADSR);
+  const live = node && now - wl.at < 250;
+  S.lvl = live ? wl.lvl : env.lvl;
+  S.drift = live ? wl.drift : 0;
+  S.driftSt = live ? wl.dSt : 0;
+  if (an) {
+    an.getFloatTimeDomainData(S.buf);
+    let s = 0; for (let i = 0; i < 1024; i += 4) s += S.buf[i] * S.buf[i];
+    const a = clamp(Math.sqrt(s / 256) * 5, 0, 1);
+    S.aud += (a - S.aud) * (a > S.aud ? 0.6 : 0.15);
+  }
+  S.mv = clamp(S.lvl * (0.7 + 0.6 * S.aud), 0, 1);
+  S.tp += dt * S.mv;
+  S.mode = P[0];
+  S.colN = P[1] / 127; S.tilt = S.colN * 2;
+  S.resN = P[3] / 127; S.trkN = P[4] / 127; S.densN = P[5] / 127; S.drftN = P[6] / 127;
+  S.sel = (P[5] >> 4) & 7;
+  S.crN = S.mode < 2 ? P[7] / 127 : 0; S.q = S.mode < 2 && P[7] ? 1 + (P[7] >> 3) : 1;
+  S.clk = S.mode >= 2 ? P[7] : 0;
+  S.note = curNote;
+  S.cutN = clamp((P[2] + (curNote - 60) * P[4] * 0.0092163 + S.driftSt * 1.1682) / 127, 0, 1);
+  S.driftV = S.drift * S.drftN;
+  /* impulses: the engine's own (ANLG, DUST), at most 12 a frame */
+  S.ev = [];
+  if (live) { while (pendingImp.length && S.ev.length < 12) S.ev.push(pendingImp.shift()); pendingImp.length = Math.min(pendingImp.length, 24); }
+  else if (S.mode < 2 && P[5] && S.lvl > 0.002) {
+    let n = Math.pow(2, P[5] * 22 / 256) * dt;
+    while (S.ev.length < 12 && Math.random() < n) { S.ev.push(0.2 + Math.random() * 0.8); n -= 1; }
+  }
+  S.ev = S.ev.map(a => ({ u: Math.random(), v: Math.random(), a }));
+  /* the register / sequence clock, slowed: about 3 a second at C3, 60 at the most, while it sounds */
+  const ps = curNote + S.clk + S.driftSt;
+  const rate = Math.min(60, 5 * Math.pow(2, (ps - 60) / 18)), run = Math.min(1, S.lvl * 4);
+  S.clkAcc += rate * dt * run; S.steps = Math.floor(S.clkAcc); S.clkAcc -= S.steps; S.frac = S.clkAcc;
+  S.rot += dt * 0.15 * Math.pow(2, (ps - 48) / 24) * run;
+  S.noteOn = noteFlag; noteFlag = false;
+  S.seed = (Math.imul(curNote + 1, 0x9E3779B9) >>> 0) || 1;
+}
+
+/* ======================================================================
+ * ANLG
+ * ==================================================================== */
+
+/* FLOW: streaks through a noise flow field */
+function FLOW() {
+  const N = 520, ps = [], sparks = [];
+  const ringR = S => 14 + 36 * S.cutN;
+  function spawn(p, S) {
+    p.age = 0; p.life = 0.8 + Math.random() * 2.5;
+    if (S && Math.random() < S.resN * 0.9) {
+      const a = Math.random() * 6.283, R = ringR(S) + gauss() * 5;
+      p.x = 120 + Math.cos(a) * R * 1.6; p.y = 70 + Math.sin(a) * R;
+    } else { p.x = Math.random() * W; p.y = Math.random() * H; }
+    return p;
+  }
+  for (let i = 0; i < N; i++) { const p = spawn({}); p.age = Math.random() * p.life; ps.push(p); }
+  function dir(x, y, S) {
+    const a0 = fbm(x * 0.016 + S.driftV * 2, y * 0.016, S.tp * 0.35, S.tilt, 3) * 7 + S.driftV * 1.2;
+    let vx = Math.cos(a0), vy = Math.sin(a0);
+    if (S.resN > 0) {   /* a band: steered into an orbit round the middle */
+      const dx = (x - 120) / 1.6, dy = y - 70, r = Math.hypot(dx, dy) + 1e-3, R = ringR(S);
+      const ta = Math.atan2(dy, dx) + 1.5708 + clamp((r - R) / R * 2.5, -1.3, 1.3);
+      let rx = Math.cos(ta) * 1.6, ry = Math.sin(ta); const l = Math.hypot(rx, ry); rx /= l; ry /= l;
+      const k = S.resN * 0.92; vx = vx * (1 - k) + rx * k; vy = vy * (1 - k) + ry * k;
+    }
+    let a = Math.atan2(vy, vx);
+    if (S.q > 1) a = Math.round(a / 0.7854) * 0.7854;   /* CRSH: eight directions */
+    return a;
+  }
+  return { draw(S) {
+    const n = Math.round(150 + 370 * S.mv), sp = (8 + 64 * S.cutN) * S.mv;
+    const L = Math.round(2 + (3 + 9 * S.cutN) * (0.3 + 0.7 * S.mv)), stp = Math.max(2, S.q * 0.75);
+    for (let i = 0; i < n; i++) {
+      const p = ps[i];
+      let a = dir(p.x, p.y, S);
+      p.x += Math.cos(a) * sp * S.dt; p.y += Math.sin(a) * sp * S.dt;
+      p.age += S.dt * S.mv * 1.2;
+      if (p.age > p.life || p.x < -4 || p.x > W + 4 || p.y < -4 || p.y > H + 4) spawn(p, S);
+      const jx = S.smp(i * 7) * 1.5 * S.mv, jy = S.smp(i * 7 + 3) * 1.5 * S.mv;
+      let x = p.x, y = p.y; const pts = [S.sn(x + jx), S.sn(y + jy)];
+      for (let k = 1; k < L; k++) { a = dir(x, y, S); x -= Math.cos(a) * stp; y -= Math.sin(a) * stp; pts.push(S.sn(x + jx), S.sn(y + jy)); }
+      const fade = clamp(Math.min(p.age * 3, (p.life - p.age) * 3), 0.25, 1);
+      poly(pts, i % 6 === 0 ? C.text : K(2), S.qa((0.2 + 0.6 * S.mv) * fade));
+    }
+    if (sparks.length > 200) sparks.splice(0, sparks.length - 200);
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i]; s.t += S.dt; if (s.t > s.life) { sparks.splice(i, 1); continue; }
+      s.x += s.vx * S.dt; s.y += s.vy * S.dt; s.vx *= 0.93; s.vy *= 0.93;
+      poly([S.sn(s.x), S.sn(s.y), S.sn(s.x - s.vx * 0.05), S.sn(s.y - s.vy * 0.05)], K(1), S.qa(1 - s.t / s.life));
+    }
+  } };
+}
+
+/* TOPO: a contour map of the noise, peaks pushed up by the impulses */
+function TOPO() {
+  const bumps = [];
+  const EDGE = [[], [[3, 2]], [[2, 1]], [[3, 1]], [[0, 1]], [[0, 1], [3, 2]], [[0, 2]], [[3, 0]],
+                [[3, 0]], [[0, 2]], [[3, 0], [2, 1]], [[0, 1]], [[3, 1]], [[2, 1]], [[3, 2]], []];
+  return { draw(S) {
+    const tau = 0.35 + 1.8 * S.resN;
+    for (let i = bumps.length - 1; i >= 0; i--) if (S.t - bumps[i].t0 > tau * 5) bumps.splice(i, 1);
+    const c = Math.max(4, S.q), nx = Math.ceil(W / c) + 1, ny = Math.ceil(H / c) + 1;
+    const f = new Float32Array(nx * ny), amp = 0.5 + 0.8 * S.mv;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const x = i * c, y = j * c;
+      let h = fbm((x + S.driftV * 60) * 0.013, y * 0.013, S.tp * 0.2, S.tilt, 4) * 2.3 * amp;
+      for (const b of bumps) { const dx = x - b.x, dy = y - b.y, d2 = dx * dx + dy * dy;
+        if (d2 < b.s * b.s * 9) h += b.a * Math.exp(-d2 / (b.s * b.s)) * Math.exp(-(S.t - b.t0) / tau); }
+      f[j * nx + i] = h;
+    }
+    const Lc = 3 + Math.round(S.cutN * 9), lf = Math.sin(S.tp * 1.1) * 0.75, wid = 0.1 + 0.6 * (1 - S.resN);
+    const pt = new Float32Array(8);
+    for (let k = 0; k < Lc; k++) {
+      const th = -1 + (k + 0.5) * 2 / Lc, foc = Math.exp(-(((th - lf) / wid) ** 2)), wgt = lerp(1, foc, S.resN);
+      const u = Lc > 1 ? k / (Lc - 1) : 0.5, col = K(3 - Math.min(3, Math.floor(u * 4)));   /* low a4 .. peaks a1 */
+      setA(S.qa((0.2 + 0.65 * S.mv) * wgt + 0.06)); g.strokeStyle = col;
+      g.lineWidth = S.resN > 0.3 && foc > 0.7 ? 1.6 : 1; g.beginPath();
+      for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
+        const a = f[j * nx + i], b = f[j * nx + i + 1], cc = f[(j + 1) * nx + i + 1], d = f[(j + 1) * nx + i];
+        const code = (a > th) << 3 | (b > th) << 2 | (cc > th) << 1 | (d > th);
+        if (!code || code === 15) continue;
+        const x0 = i * c, y0 = j * c;
+        pt[0] = x0 + c * (th - a) / (b - a); pt[1] = y0;                 /* top */
+        pt[2] = x0 + c; pt[3] = y0 + c * (th - b) / (cc - b);             /* right */
+        pt[4] = x0 + c * (th - d) / (cc - d); pt[5] = y0 + c;             /* bottom */
+        pt[6] = x0; pt[7] = y0 + c * (th - a) / (d - a);                  /* left */
+        const jit = S.smp(i * 7 + j * 13 + k * 3) * 0.8 * S.mv;
+        for (const [e1, e2] of EDGE[code]) { g.moveTo(pt[e1 * 2] + jit, pt[e1 * 2 + 1] - jit); g.lineTo(pt[e2 * 2] + jit, pt[e2 * 2 + 1] - jit); }
+      }
+      g.stroke();
+    }
+  } };
+}
+
+/* THREADS: a bundle of taut threads, the noise shaking them, impulses plucking them */
+function THREADS() {
+  const NT = 13, plucks = [];
+  return { draw(S) {
+    for (const e of S.ev) { plucks.push({ i: (Math.random() * NT) | 0, x0: e.u * W, t0: S.t, a: (0.6 + e.a) * 9 }); if (plucks.length > 24) plucks.shift(); }
+    const tau = 0.15 + 1.3 * S.resN, fr = 3 + 14 * S.cutN, cs = 70 + 140 * S.cutN;
+    for (let i = plucks.length - 1; i >= 0; i--) if (S.t - plucks[i].t0 > tau * 5) plucks.splice(i, 1);
+    const step = Math.max(2, S.q), nP = Math.ceil(W / step) + 1;
+    const fx = 0.008 + 0.055 * Math.pow(S.cutN, 1.3), A = 1.2 + 15 * S.mv, spread = 112 * (1 - 0.86 * S.resN);
+    const yc = new Float32Array(nP), sh = new Float32Array(nP);
+    for (let p = 0; p < nP; p++) {
+      const x = p * step;
+      yc[p] = 70 + S.driftV * 30 + 12 * fbm(x * 0.006, 50.5, S.tp * 0.15, 1, 2);
+      sh[p] = fbm(x * fx, 77.7, S.tp * 0.9, S.tilt, 4);
+    }
+    for (let i = 0; i < NT; i++) {
+      const o = (i / (NT - 1) - 0.5) * spread, pts = [], hot = [];
+      for (let p = 0; p < nP; p++) {
+        const x = p * step;
+        const n = lerp(fbm(x * fx, i * 3.1 + 0.5, S.tp * 0.9, S.tilt, 4), sh[p], S.resN);
+        let d = 0;
+        for (const q of plucks) if (q.i === i) {
+          const age = S.t - q.t0, en = Math.exp(-age / tau) * Math.cos(6.283 * fr * age) * q.a;
+          const u1 = (x - q.x0 - cs * age) / 12, u2 = (x - q.x0 + cs * age) / 12;
+          d += en * (Math.exp(-u1 * u1) + Math.exp(-u2 * u2));
+        }
+        pts.push(S.sn(x), S.sn(yc[p] + o + A * n * 1.8 + d + S.smp(i * 31 + p) * 0.6 * S.mv));
+        hot.push(Math.abs(d));
+      }
+      poly(pts, i % 3 === 1 ? C.text : K(2), S.qa(0.3 + 0.55 * S.mv));
+      let run = [];   /* the plucked stretch, in DENS's accent */
+      for (let p = 0; p <= nP; p++) {
+        if (p < nP && hot[p] > 0.6) run.push(pts[p * 2], pts[p * 2 + 1]);
+        else { if (run.length >= 4) poly(run, K(1), S.qa(0.95)); run = []; }
+      }
+    }
+  } };
+}
+
+/* ======================================================================
+ * DUST
+ * ==================================================================== */
+
+/* STARS: each click a star, the near ones joined into constellations */
+function STARS() {
+  const st = []; let px = 120, py = 70;
+  const motes = Array.from({ length: 70 }, () => [Math.random() * W, Math.random() * H]);
+  return { draw(S) {
+    const tau = 0.2 + 2.8 * Math.pow(S.resN, 1.2), fr = 1.5 + 12 * S.cutN, D = 16 + 56 * (1 - S.cutN);
+    for (const e of S.ev) {   /* COLR: white scattered anywhere, brown a random walk from the last */
+      px = clamp(lerp(Math.random() * W, px + gauss() * 34, S.colN), 4, W - 4);
+      py = clamp(lerp(Math.random() * H, py + gauss() * 22, S.colN), 4, H - 4);
+      st.push({ x: px, y: py, t0: S.t, a: 0.45 + 0.55 * e.a, c: (Math.random() * 4) | 0, s: 1 + Math.round(S.colN * 2) + (e.a > 0.75 ? 1 : 0) });
+      if (st.length > 140) st.shift();
+    }
+    if (S.mv > 0.01) {   /* the hiss between the clicks */
+      g.fillStyle = C.mid;
+      for (let i = 0; i < motes.length; i++) { const a = Math.min(0.4, Math.abs(S.smp(i * 17)) * 1.5) * S.lvl;
+        if (a > 0.03) { setA(a); g.fillRect(S.sn(motes[i][0]) | 0, S.sn(motes[i][1]) | 0, 1, 1); } }
+    }
+    for (let i = st.length - 1; i >= 0; i--) {
+      const s = st[i], age = S.t - s.t0, e = Math.exp(-age / tau);
+      if (e < 0.02) { st.splice(i, 1); continue; }
+      s.x += S.driftV * 16 * S.dt; s.y += S.driftV * 3 * S.dt;
+      s.b = s.a * e * (1 - S.resN * 0.65 * (0.5 - 0.5 * Math.cos(6.283 * fr * age)));   /* RES: it rings */
+    }
+    g.strokeStyle = K(3); g.lineWidth = 1;
+    for (let i = 0; i < st.length; i++) for (let j = i + 1; j < st.length; j++) {
+      const dx = st[i].x - st[j].x, dy = st[i].y - st[j].y, d2 = dx * dx + dy * dy;
+      if (d2 > D * D) continue;
+      setA(S.qa(Math.min(st[i].b, st[j].b) * (1 - Math.sqrt(d2) / D) * 0.8));
+      g.beginPath(); g.moveTo(S.sn(st[i].x), S.sn(st[i].y)); g.lineTo(S.sn(st[j].x), S.sn(st[j].y)); g.stroke();
+    }
+    const SC = [K(0), K(1), K(2), C.text];
+    for (const s of st) {   /* the boot screen's star: a plus, the arms fading */
+      const x = Math.round(S.sn(s.x)), y = Math.round(S.sn(s.y));
+      g.fillStyle = SC[s.c]; setA(S.qa(s.b)); g.fillRect(x, y, 1, 1);
+      for (let k = 1; k <= s.s; k++) {
+        setA(S.qa(s.b * (s.s + 1 - k) / (s.s + 1)));
+        g.fillRect(x - k, y, 1, 1); g.fillRect(x + k, y, 1, 1); g.fillRect(x, y - k, 1, 1); g.fillRect(x, y + k, 1, 1);
+      }
+    }
+  } };
+}
+
+/* CRACKLE: cracks spreading across a glaze, each click a new branch */
+function CRACKLE() {
+  const segs = [], tips = [];
+  return { draw(S) {
+    for (const e of S.ev) {
+      let x, y, ang;
+      if (segs.length && Math.random() < 0.8) {   /* off an existing crack, RES: square to it */
+        const s = segs[Math.max(0, segs.length - 1 - ((Math.random() ** 2) * segs.length | 0))], u = Math.random();
+        x = lerp(s.x1, s.x2, u); y = lerp(s.y1, s.y2, u);
+        ang = Math.atan2(s.y2 - s.y1, s.x2 - s.x1) + (Math.random() < 0.5 ? 1.5708 : -1.5708) + gauss() * (1 - S.resN) * 0.9;
+      } else { x = Math.random() * W; y = Math.random() * H; ang = Math.random() * 6.283; }
+      tips.push({ x, y, ang, left: 10 + 50 * e.a + 30 * Math.random(), acc: 0 });
+      if (tips.length > 24) tips.shift();
+    }
+    const speed = 20 + 180 * S.mv, sl = 2 + 9 * (1 - S.cutN), jit = (0.08 + 0.7 * S.cutN) * (1 - 0.75 * S.resN);
+    for (let i = tips.length - 1; i >= 0; i--) {
+      const t = tips[i]; t.acc += speed * S.dt;
+      while (t.acc >= sl && t.left > 0) {
+        t.acc -= sl; t.left -= sl;
+        t.ang += gauss() * jit + S.driftV * 0.08;
+        let a = t.ang; if (S.q > 1) a = Math.round(a / 0.7854) * 0.7854;
+        const nx = t.x + Math.cos(a) * sl, ny = t.y + Math.sin(a) * sl;
+        segs.push({ x1: t.x, y1: t.y, x2: nx, y2: ny, age: 0 });
+        t.x = nx; t.y = ny;
+        if (nx < 0 || nx > W || ny < 0 || ny > H) { t.left = 0; break; }
+      }
+      if (t.left <= 0) tips.splice(i, 1);
+    }
+    const keep = 1.2 + 20 * S.colN * S.colN;   /* COLR: brown remembers */
+    if (segs.length > 900) segs.splice(0, segs.length - 900);
+    for (let i = segs.length - 1; i >= 0; i--) { segs[i].age += S.dt * (0.05 + S.mv); if (Math.exp(-segs[i].age / keep) < 0.04) segs.splice(i, 1); }
+    const B = 6, paths = Array.from({ length: B }, () => []), fresh = [];
+    for (const s of segs) {
+      const pts = [S.sn(s.x1), S.sn(s.y1), S.sn(s.x2), S.sn(s.y2)];
+      if (s.age < 0.12) fresh.push(pts);
+      else paths[Math.min(B - 1, Math.floor(Math.exp(-s.age / keep) * B))].push(pts);
+    }
+    g.lineWidth = 1;
+    for (let b = 0; b < B; b++) {
+      if (!paths[b].length) continue;
+      setA(S.qa(0.12 + 0.75 * (b + 1) / B)); g.strokeStyle = C.text; g.beginPath();
+      for (const p of paths[b]) { g.moveTo(p[0], p[1]); g.lineTo(p[2], p[3]); }
+      g.stroke();
+    }
+    if (fresh.length) { setA(1); g.strokeStyle = K(1); g.beginPath(); for (const p of fresh) { g.moveTo(p[0], p[1]); g.lineTo(p[2], p[3]); } g.stroke(); }
+    g.fillStyle = K(0); for (const t of tips) { setA(0.9); g.fillRect(Math.round(S.sn(t.x)) - 1, Math.round(S.sn(t.y)) - 1, 2, 2); }
+  } };
+}
+
+/* RAIN: each click a drop, falling and ringing on a puddle in perspective */
+function RAIN() {
+  const drops = [], spl = [];
+  const GROUND = [62, 66, 72, 80, 91, 106, 126];
+  return { draw(S) {
+    const slant = S.driftV * 0.7 + 0.12;
+    for (const e of S.ev) {
+      const d = Math.random(), tgt = 62 + d * 74, v = 260 + 300 * d;
+      drops.push({ x: e.u * (W + 40) - 20, y: tgt - v * 0.1, tgt, d, v, a: e.a });
+    }
+    if (drops.length > 80) drops.splice(0, drops.length - 80);
+    g.strokeStyle = C.dim; g.lineWidth = 1;   /* the ground */
+    GROUND.forEach((y, i) => { setA(0.25 + i * 0.05); g.beginPath();
+      for (let x = (i * 7) % 12; x < W; x += 12) { g.moveTo(x, y + 0.5); g.lineTo(x + 5 + i, y + 0.5); } g.stroke(); });
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const r = drops[i]; r.y += r.v * S.dt; r.x += r.v * S.dt * slant;
+      if (r.y >= r.tgt) {
+        spl.push({ x: r.x, y: r.tgt, d: r.d, t0: S.t, a: r.a,
+          crown: Array.from({ length: 2 + Math.round(S.cutN * 5) }, () => ({ vx: gauss() * 40, vy: -(40 + Math.random() * 60) * (0.5 + r.d * 0.5) })) });
+        drops.splice(i, 1); continue;
+      }
+      const len = 4 + 9 * S.colN + 4 * r.d;
+      poly([S.sn(r.x), S.sn(r.y), S.sn(r.x - len * slant), S.sn(r.y - len)], K(1), S.qa(0.45 + 0.5 * r.d), S.colN > 0.6 && r.d > 0.6 ? 1.6 : 1);
+    }
+    const nR = 1 + Math.round(S.resN * 4), gap = 0.05 + 0.18 * (1 - S.cutN), tau = 0.18 + 0.9 * S.resN, vr = 30 + 40 * (1 - S.cutN);
+    if (spl.length > 40) spl.splice(0, spl.length - 40);
+    for (let i = spl.length - 1; i >= 0; i--) {
+      const s = spl[i], age = S.t - s.t0;
+      if (age > tau * 4 + nR * gap) { spl.splice(i, 1); continue; }
+      const sc = 0.4 + 0.6 * s.d;
+      for (let k = 0; k < nR; k++) {   /* RES: the rings it rings */
+        const ak = age - k * gap; if (ak <= 0) continue;
+        const rx = ak * vr * sc + 1, ry = rx * (0.16 + 0.14 * s.d), a = Math.exp(-ak / tau) * (0.5 + 0.5 * s.a);
+        const pts = []; for (let q = 0; q <= 24; q++) { const t = q / 24 * 6.283; pts.push(S.sn(s.x + Math.cos(t) * rx), S.sn(s.y + Math.sin(t) * ry)); }
+        poly(pts, K(3), S.qa(a));
+      }
+      if (age < 0.4) {   /* FREQ: the crown's droplets */
+        g.fillStyle = K(2); setA(S.qa(1 - age / 0.4));
+        for (const c of s.crown) g.fillRect(Math.round(S.sn(s.x + c.vx * age * sc)), Math.round(S.sn(s.y + (c.vy * age + 200 * age * age) * sc)), 1, 1);
+      }
+    }
+  } };
+}
+
+/* ======================================================================
+ * LFSR
+ * ==================================================================== */
+function seedReg(S, sel) { const mask = (1 << NBITS[sel]) - 1; return ((S.seed & mask) | 1) >>> 0; }
+
+/* SHIFT: the register itself, a row a clock, falling as a waterfall */
+function SHIFT() {
+  let reg = 1, sel = -1, flash = 0; const hist = [];
+  return { draw(S) {
+    if (S.sel !== sel || S.noteOn) {
+      sel = S.sel; reg = seedReg(S, sel); hist.length = 0;
+      for (let r = 0; r < 60; r++) { hist.unshift(reg); reg = lfsrStep(reg, TAPS[sel]); }
+    }
+    for (let s = 0; s < S.steps; s++) { reg = lfsrStep(reg, TAPS[sel]); hist.unshift(reg); flash = 1; }
+    if (hist.length > 160) hist.length = 160;
+    flash = Math.max(0, flash - S.dt * 6);
+    const n = NBITS[sel], cw = W / n, ch = Math.round(3 + 9 * (1 - S.cutN)), rows = Math.min(hist.length, Math.ceil(H / ch) + 1);
+    const taps = TAPS[sel], bit = (r, c) => r >= 0 && r < rows && c >= 0 && c < n ? (hist[r] >>> (n - 1 - c)) & 1 : 0;
+    for (let r = 0; r < rows; r++) {
+      const y = (r - 1 + S.frac) * ch, fade = 1 - r / (rows + 2) * 0.75, sx = S.driftV * r * 0.9 + S.driftV * 3 * Math.sin(r * 0.5 + S.tp * 3);
+      for (let c = 0; c < n; c++) {
+        const b = bit(r, c);
+        const v = lerp(b, 0.4 * b + 0.15 * (bit(r - 1, c) + bit(r + 1, c)) + 0.15 * (bit(r, c - 1) + bit(r, c + 1)), S.colN);   /* COLR: smeared */
+        if (v < 0.03) continue;
+        const bi = n - 1 - c, tap = (taps >>> bi) & 1;
+        const a = v * fade * (0.35 + 0.65 * Math.max(S.lvl, 0.25));
+        const x = c * cw + sx;
+        g.fillStyle = bi === 0 ? K(0) : C.text; setA(a);
+        g.fillRect(Math.round(x + 1), Math.round(y), Math.max(1, Math.round(cw - 2)), Math.max(1, ch - 1));
+        if (tap && S.resN > 0) { g.fillStyle = K(3); setA(a * S.resN); g.fillRect(Math.round(x + 1), Math.round(y), Math.max(1, Math.round(cw - 2)), Math.max(1, ch - 1)); }
+        if (r === 0 && flash > 0) { g.fillStyle = K(1); setA(flash * v); g.fillRect(Math.round(x + 1), Math.round(y), Math.max(1, Math.round(cw - 2)), Math.max(1, ch - 1)); }
+      }
+    }
+    if (S.resN > 0) {   /* RES: the feedback taps marked along the bottom */
+      g.fillStyle = K(3); setA(0.3 + 0.7 * S.resN);
+      for (let bi = 0; bi < n; bi++) if ((taps >>> bi) & 1) g.fillRect(Math.round((n - 1 - bi) * cw + cw / 2 - 2), H - 2, 4, 2);
+    }
+    g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top"; g.fillStyle = C.mid; setA(1); g.fillText(LONG_N[sel], 3, 3);
+  } };
+}
+
+/* MAZE: 10 PRINT. Each bit a tile, / or \, the register writing the maze as it clocks */
+function MAZE() {
+  let reg = 1, sel = -1, flash = 0; const BN = 2400; let bits = [];
+  return { draw(S) {
+    if (S.sel !== sel || S.noteOn) {
+      sel = S.sel; reg = seedReg(S, sel); bits = [];
+      for (let i = 0; i < BN; i++) { reg = lfsrStep(reg, TAPS[sel]); bits.push(reg & 1); }
+    }
+    for (let s = 0; s < S.steps; s++) { reg = lfsrStep(reg, TAPS[sel]); bits.push(reg & 1); flash = 1; }
+    if (bits.length > BN) bits.splice(0, bits.length - BN);
+    flash = Math.max(0, flash - S.dt * 5);
+    const ts = Math.round(7 + 13 * (1 - S.cutN)), cols = Math.floor(W / ts), rows = Math.floor(H / ts), N = cols * rows;
+    const oy = Math.floor((H - rows * ts) / 2);
+    const la = (1 - S.resN) * (0.45 + 0.55 * Math.max(S.lvl, 0.3)), ra = S.resN * (0.45 + 0.55 * Math.max(S.lvl, 0.3));
+    const lines = new Path2D(), arcs = new Path2D(), fills = new Path2D();
+    for (let ry = 0; ry < rows; ry++) {
+      const shx = S.driftV * Math.sin(ry * 0.6 + S.tp * 2) * ts * 0.6;
+      for (let cx = 0; cx <= cols; cx++) {
+        const k = bits.length - N + ry * cols + cx; if (k < 0 || k >= bits.length) continue;
+        const b = bits[k], x = (cx - S.frac) * ts + shx, y = oy + ry * ts;
+        if (b) { lines.moveTo(x, y); lines.lineTo(x + ts, y + ts); fills.moveTo(x, y); fills.lineTo(x + ts, y + ts); fills.lineTo(x, y + ts); }
+        else { lines.moveTo(x + ts, y); lines.lineTo(x, y + ts); fills.moveTo(x + ts, y); fills.lineTo(x, y + ts); fills.lineTo(x + ts, y + ts); }
+        const h = ts / 2;   /* Truchet: quarter circles round two opposite corners */
+        if (b) { arcs.moveTo(x + h, y); arcs.arc(x + ts, y, h, Math.PI, Math.PI / 2, true); arcs.moveTo(x, y + h); arcs.arc(x, y + ts, h, -Math.PI / 2, 0); }
+        else { arcs.moveTo(x + h, y); arcs.arc(x, y, h, 0, Math.PI / 2); arcs.moveTo(x + ts, y + h); arcs.arc(x + ts, y + ts, h, -Math.PI / 2, Math.PI, true); }
+      }
+    }
+    if (S.colN > 0.02) { g.fillStyle = K(1); setA(S.colN * 0.32); g.fill(fills); }
+    g.lineWidth = 1;
+    if (la > 0.01) { g.strokeStyle = K(2); setA(la); g.stroke(lines); }
+    if (ra > 0.01) { g.strokeStyle = K(3); setA(ra); g.lineWidth = 1.3; g.stroke(arcs); }
+    if (flash > 0) { g.strokeStyle = K(0); setA(flash); g.lineWidth = 1; g.strokeRect((cols - 1 - S.frac) * ts + 0.5, oy + (rows - 1) * ts + 0.5, ts - 1, ts - 1); }
+    g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top"; g.fillStyle = C.mid; setA(1); g.fillText(LONG_N[sel], 3, 3);
+  } };
+}
+
+/* BARS: the output bit stream as a skyline, through COLR and the filter (DRFT glitches it) */
+function BARS() {
+  let reg = 1, sel = -1, flash = 0; let bits = []; const BW = 3, NB = Math.ceil(W / BW) + 1, WARM = 120;
+  const offs = new Float32Array(7);
+  return { draw(S) {
+    if (S.sel !== sel || S.noteOn) {
+      sel = S.sel; reg = seedReg(S, sel); bits = [];
+      for (let i = 0; i < NB + WARM; i++) { reg = lfsrStep(reg, TAPS[sel]); bits.push(reg & 1); }
+    }
+    for (let s = 0; s < S.steps; s++) {
+      reg = lfsrStep(reg, TAPS[sel]); bits.push(reg & 1); flash = 1;
+      for (let b = 0; b < 7; b++) offs[b] = (((reg >>> (b * 2)) & 3) - 1.5) / 1.5;   /* the slices jump on a clock */
+    }
+    if (bits.length > NB + WARM) bits.splice(0, bits.length - NB - WARM);
+    flash = Math.max(0, flash - S.dt * 5);
+    const fc = 0.015 * Math.pow(0.45 / 0.015, S.cutN);
+    const y = chain(Float32Array.from(bits, b => b ? 1 : -1), fc, S.colN, S.resN);
+    const amp = 18 + 30 * Math.max(S.lvl, 0.15), base = 66, sh = 20;
+    for (let i = 0; i < NB; i++) {
+      const k = y.length - NB + i, v = clamp(y[k] * amp, -60, 60);
+      const x = W - (NB - 1 - i + S.frac) * BW, top = Math.min(base, base - v), bot = Math.max(base, base - v);
+      const newest = i === NB - 1;
+      g.fillStyle = newest && flash > 0 ? K(0) : v >= 0 ? K(1) : K(3);
+      setA(newest ? 0.6 + 0.4 * flash : 0.35 + 0.6 * Math.max(S.lvl, 0.3));
+      for (let b = 0; b < 7; b++) {   /* DRFT: seven slices, each shifted its own way */
+        const y0 = Math.max(top, b * sh), y1 = Math.min(bot, (b + 1) * sh);
+        if (y1 <= y0) continue;
+        const ox = Math.round(offs[b] * S.drftN * 10 * (0.4 + 0.6 * Math.abs(S.drift)));
+        g.fillRect(Math.round(x) + ox, Math.round(y0), BW - 1, Math.max(1, Math.round(y1 - y0)));
+      }
+      if (bits[k]) { g.fillStyle = C.mid; setA(0.6); g.fillRect(Math.round(x), 134, BW - 1, 2); }   /* the raw bit */
+    }
+    g.fillStyle = C.dim; setA(0.6); g.fillRect(0, base, W, 1);
+    g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top"; g.fillStyle = C.mid; setA(1); g.fillText(LONG_N[sel], 3, 3);
+  } };
+}
+
+/* NECKLACE: the register's cells round a ring, the bits sliding one cell on each clock towards the output;
+ * the feedback taps chords from the output, flashing when they flip their bit */
+function NECKLACE() {
+  let reg = 1, sel = -1, flash = 0; const out = [];
+  return { draw(S) {
+    if (S.sel !== sel || S.noteOn) { sel = S.sel; reg = seedReg(S, sel); out.length = 0; }
+    const taps = TAPS[sel];
+    for (let s = 0; s < S.steps; s++) {
+      const o = reg & 1; reg = lfsrStep(reg, taps); out.unshift({ b: o, t0: S.t });
+      if (o) flash = 1;
+    }
+    if (out.length > 40) out.length = 40;
+    flash = Math.max(0, flash - S.dt * 4);
+    const n = NBITS[sel], cx = 120, cy = 70, wob = S.driftV * 6;
+    const rx = 92 + wob * Math.sin(S.tp * 2), ry = 54 - wob * Math.cos(S.tp * 1.7), r0 = 1.8 + 3.2 * (1 - S.cutN);
+    const slot = i => { const a = Math.PI / 2 + i / n * 6.2832; return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; };
+    const pos = (i, u) => { const a = Math.PI / 2 + (i + u) / n * 6.2832; return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; };
+    /* the ring itself, faint */
+    const ring = []; for (let q = 0; q <= 72; q++) { const a = q / 72 * 6.2832; ring.push(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry); }
+    poly(ring, C.dim, 0.5);
+    /* RES: the taps as chords from the output (cell 0) */
+    const [ox, oy] = slot(0);
+    for (let i = 1; i < n; i++) if ((taps >>> i) & 1) {
+      const [tx, ty] = slot(i);
+      poly([ox, oy, (ox + tx) / 2 * 0.6 + cx * 0.4, (oy + ty) / 2 * 0.6 + cy * 0.4, tx, ty], K(3), 0.15 + 0.35 * S.resN + 0.5 * flash);
+    }
+    /* the bits, sliding in during the first quarter of each clock */
+    const slide = Math.max(0, 1 - S.frac * 4), ease = slide * slide;
+    for (let i = 0; i < n; i++) {
+      const b = (reg >>> i) & 1, [x, y] = pos(i, ease), tap = (taps >>> i) & 1;
+      const col = i === 0 ? K(0) : tap && S.resN > 0.3 ? K(3) : C.text;
+      if (b) {
+        if (S.colN > 0.05) { g.fillStyle = col; setA(0.18 * S.colN); g.beginPath(); g.arc(x, y, r0 + 1 + 3 * S.colN, 0, 6.2832); g.fill(); }   /* COLR: a soft glow */
+        g.fillStyle = col; setA(0.5 + 0.5 * Math.max(S.lvl, 0.3)); g.beginPath(); g.arc(x, y, r0, 0, 6.2832); g.fill();
+      } else {
+        g.strokeStyle = col; g.lineWidth = 1; setA(0.45); g.beginPath(); g.arc(x, y, r0, 0, 6.2832); g.stroke();
+      }
+    }
+    /* the bits that fell out: a stream from the output into the middle */
+    out.forEach((o, k) => {
+      if (!o.b) return;
+      const u = Math.min(1, (S.t - o.t0) * 1.2 + k * 0.02), x = lerp(ox, cx, u), y = lerp(oy, cy, u) - Math.sin(u * 3.1416) * 10;
+      g.fillStyle = K(1); setA((1 - u) * 0.9); g.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
+    });
+    g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top"; g.fillStyle = C.mid; setA(1); g.fillText(LONG_N[sel], 3, 3);
+  } };
+}
+
+/* CONSTELLATION: the output stream cut into words, each pair of words a point (x, y). A short register's few
+ * points fall on a lattice; a long one fills the field like noise */
+function CONSTELLATION() {
+  let reg = 1, sel = -1; const pts = [];
+  return { draw(S) {
+    if (S.sel !== sel || S.noteOn) { sel = S.sel; reg = seedReg(S, sel); pts.length = 0; }
+    const taps = TAPS[sel], wb = Math.min(NBITS[sel], 8), M = (1 << wb) - 1;
+    const word = () => { let w = 0; for (let k = 0; k < wb; k++) { w = (w << 1) | (reg & 1); reg = lfsrStep(reg, taps); } return w; };
+    for (let s = 0; s < S.steps; s++) for (let k = 0; k < 4; k++) {   /* four points a clock */
+      pts.push({ x: word() / M, y: word() / M, t0: S.t, k: (Math.random() * 4) | 0 });
+    }
+    const keep = 0.8 + 6 * S.colN * S.colN;            /* COLR: brown remembers longer */
+    while (pts.length > 600 || (pts.length && S.t - pts[0].t0 > keep * 3)) pts.shift();
+    const ang = S.driftV * 0.5 + S.driftV * 0.15 * Math.sin(S.tp * 2), ca = Math.cos(ang), sa = Math.sin(ang);
+    const X = p => { const u = p.x - 0.5, v = p.y - 0.5; return [120 + (u * ca - v * sa) * 200, 70 + (u * sa + v * ca) * 124]; };
+    if (S.resN > 0.02) {                                  /* RES: the path from point to point */
+      g.strokeStyle = K(3); g.lineWidth = 1;
+      for (let i = Math.max(1, pts.length - 40); i < pts.length; i++) {
+        const [x0, y0] = X(pts[i - 1]), [x1, y1] = X(pts[i]);
+        setA(S.resN * 0.6 * (1 - (pts.length - i) / 40)); g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+      }
+    }
+    const sz = 1 + Math.round(2 * (1 - S.cutN)), SC = [K(0), K(1), K(2), C.text];   /* FREQ: smaller stars higher */
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], a = Math.exp(-(S.t - p.t0) / keep), [x, y] = X(p), newest = i >= pts.length - 4;
+      g.fillStyle = newest ? K(0) : SC[p.k]; setA(newest ? 1 : a * (0.4 + 0.6 * Math.max(S.lvl, 0.3)));
+      g.fillRect(Math.round(x - sz / 2), Math.round(y - sz / 2), sz, sz);
+      if (newest) { g.fillRect(Math.round(x) - 3, Math.round(y), 7, 1); g.fillRect(Math.round(x), Math.round(y) - 3, 1, 7); }
+    }
+    g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top"; g.fillStyle = C.mid; setA(1); g.fillText(LONG_N[sel], 3, 3);
+  } };
+}
+
+/* CRITTERS: the bits print a mirror-symmetric creature, 3 x 6 bits (5 x 6 cells, the middle column shared),
+ * a bit a clock; finished, it marches off to the left with the others */
+function CRITTERS() {
+  let reg = 1, sel = -1, cur = []; const done = []; let hop = 0;
+  const NB = 18;
+  return { draw(S) {
+    if (S.sel !== sel || S.noteOn) { sel = S.sel; reg = seedReg(S, sel); cur = []; done.length = 0; }
+    const taps = TAPS[sel];
+    for (let s = 0; s < S.steps; s++) {
+      cur.push(reg & 1); reg = lfsrStep(reg, taps);
+      if (cur.length === NB) { done.unshift({ bits: cur, c: (reg >>> 2) & 3 }); cur = []; hop = 1; if (done.length > 12) done.pop(); }
+    }
+    hop = Math.max(0, hop - S.dt * 2.5);
+    const px = 2 + Math.round(3 * (1 - S.cutN)), cw = 5 * px, ch = 6 * px, pitch = cw + 3 * px + 4;
+    const prog = (cur.length + S.frac) / NB;               /* how far the one being printed is */
+    const base = 70 + ch / 2, x0 = 230 - cw;
+    const draw = (bits, x, y, col, a, nShown) => {
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 3; c++) {
+        const k = r * 3 + c; if (k >= nShown || !bits[k]) continue;
+        g.fillStyle = col; setA(a);
+        for (const cc of c === 2 ? [2] : [c, 4 - c]) {     /* mirrored about the middle column */
+          const xx = Math.round(x + cc * px), yy = Math.round(y + r * px);
+          if (S.colN > 0.5) { g.beginPath(); g.arc(xx + px / 2, yy + px / 2, px / 2 + 0.3, 0, 6.2832); g.fill(); }   /* COLR: rounded */
+          else g.fillRect(xx, yy, px - (S.colN > 0.15 ? 1 : 0), px - (S.colN > 0.15 ? 1 : 0));
+        }
+      }
+    };
+    g.fillStyle = C.dim; setA(0.6); g.fillRect(0, base + 3, W, 1);   /* the ground */
+    done.forEach((d, i) => {
+      const x = x0 - (i + prog) * pitch;
+      if (x < -cw) return;
+      const ring = S.resN * 6 * hop * Math.cos(hop * 18 + i);   /* RES: they bounce on each new one, ringing */
+      const sway = S.driftV * 6 * Math.sin(S.tp * 4 + i * 0.9);
+      draw(d.bits, x, base - ch + Math.min(0, -Math.abs(ring)) + sway, K(d.c), 0.55 + 0.45 * Math.max(S.lvl, 0.3), NB);
+    });
+    /* the one being printed, its outline box and the cell being written */
+    draw(cur, x0, base - ch, K(0), 1, cur.length);
+    g.strokeStyle = C.mid; g.lineWidth = 1; setA(0.35); g.strokeRect(x0 - 2.5, base - ch - 2.5, cw + 5, ch + 5);
+    if (cur.length < NB) {
+      const r = (cur.length / 3) | 0, c = cur.length % 3;
+      g.strokeStyle = K(0); setA(0.6 + 0.4 * Math.sin(S.t * 20)); g.strokeRect(x0 + c * px + 0.5, base - ch + r * px + 0.5, px - 1, px - 1);
+    }
+    g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top"; g.fillStyle = C.mid; setA(1); g.fillText(LONG_N[sel], 3, 3);
+  } };
+}
+
+/* ======================================================================
+ * META
+ * ==================================================================== */
+
+/* CHLADNI: sand on a vibrating metal plate, gathering on its nodal lines */
+function CHLADNI() {
+  const N = 1400, xs = new Float32Array(N), ys = new Float32Array(N), vx = new Float32Array(N), vy = new Float32Array(N);
+  for (let i = 0; i < N; i++) { xs[i] = Math.random(); ys[i] = Math.random(); }
+  const X0 = 8, Y0 = 4, PW = 224, PH = 132, DM = [4, 4, 3, 3, 2, 2, 1, 1];
+  return { draw(S) {
+    const n = 1 + Math.round(S.cutN * 4) + Math.floor(S.clk / 32), m = n + DM[S.sel], sg = S.sel & 1 ? -1 : 1;
+    const wm = S.drftN * (0.5 + 0.5 * S.drift), pi = Math.PI;
+    const f = (x, y) => {
+      const a = Math.cos(n * pi * x) * Math.cos(m * pi * y) + sg * Math.cos(m * pi * x) * Math.cos(n * pi * y);
+      if (wm < 0.01) return a;
+      const b = Math.cos((n + 1) * pi * x) * Math.cos((m + 1) * pi * y) + sg * Math.cos((m + 1) * pi * x) * Math.cos((n + 1) * pi * y);
+      return lerp(a, b, wm);
+    };
+    const E = clamp(S.lvl * 0.8 + S.aud * 0.7, 0, 1.2), p = 0.6 + 1.8 * S.resN, rho = 0.88 * S.colN, inn = Math.sqrt(1 - rho * rho);
+    const amps = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const a = Math.min(1, Math.abs(f(xs[i], ys[i])) / 2); amps[i] = a;
+      if (E > 0.001) {   /* shaken where it moves, still on the nodes; COLR: white jumps, brown drifts */
+        const s = E * 0.03 * Math.pow(a, p);
+        vx[i] = vx[i] * rho + gauss() * inn; vy[i] = vy[i] * rho + gauss() * inn;
+        let x = xs[i] + vx[i] * s, y = ys[i] + vy[i] * s * (PW / PH);
+        if (x < 0) x = -x; if (x > 1) x = 2 - x; if (y < 0) y = -y; if (y > 1) y = 2 - y;
+        xs[i] = clamp(x, 0, 1); ys[i] = clamp(y, 0, 1);
+      }
+    }
+    for (let i = 0; i < N; i++) {   /* the cream, and a dust of the second and the fourth accents */
+      g.fillStyle = i % 5 === 1 ? K(1) : i % 5 === 3 ? K(3) : C.text;
+      setA(0.3 + 0.7 * (1 - amps[i]) ** 2);
+      g.fillRect(Math.round(X0 + xs[i] * PW), Math.round(Y0 + ys[i] * PH), 1, 1);
+    }
+    g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top"; g.fillStyle = C.mid; setA(1); g.fillText(META_N[S.sel], 3, 3);
+  } };
+}
+
+/* ROSETTE: rings whose edge is one period of the tone, turning against each other */
+function ROSETTE() {
+  let key = "", wave = null; const M = 256, REP = [1, 1, 2, 2, 3];
+  return { draw(S) {
+    const k0 = [S.sel, P[1], Math.round(S.cutN * 254), P[3]].join();
+    if (k0 !== key) {   /* one period of the sequence, through COLR and the filter (three periods to settle) */
+      key = k0; const s = SEQ[S.sel], x = new Float32Array(M * 3);
+      for (let i = 0; i < M * 3; i++) { const j = Math.floor((i % M) * s.len / M); x[i] = (seqBit(s, j) ? s.hi : s.lo) / 16384; }
+      const y = chain(x, 0.006 * Math.pow(0.45 / 0.006, S.cutN), S.colN, S.resN);
+      let mx = 1e-6; wave = new Float32Array(M);
+      for (let i = 0; i < M; i++) { wave[i] = y[M * 2 + i]; mx = Math.max(mx, Math.abs(wave[i])); }
+      for (let i = 0; i < M; i++) wave[i] /= mx;
+    }
+    const cols = [C.text, K(0), K(1), K(2), K(3)], NP = 480;
+    for (let r = 0; r < 5; r++) {
+      const R = 14 + r * 12.5, A = (1.2 + 4.5 * S.mv + 2 * S.aud * S.lvl) * (0.6 + 0.1 * r);
+      const rot = S.rot * (r & 1 ? -1 : 1) * (1 + r * 0.35 * (1 + S.clk / 64));
+      const cx = 120 + S.driftV * 6 * Math.cos(r + S.tp), cy = 70 + S.driftV * 4 * Math.sin(r * 1.3 + S.tp);
+      const pts = [];
+      for (let q = 0; q < NP; q++) {
+        const th = q / NP, u = th * REP[r] + rot, ph = u - Math.floor(u), v = wave[Math.floor(ph * M) % M];
+        const rr = R + A * v; pts.push(cx + Math.cos(th * 6.2832) * rr, cy + Math.sin(th * 6.2832) * rr);
+      }
+      poly(pts, cols[r], 0.4 + 0.6 * Math.max(S.mv, 0.15), 1, true);
+    }
+    g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top"; g.fillStyle = C.mid; setA(1); g.fillText(META_N[S.sel], 3, 3);
+  } };
+}
+
+/* MOIRE: two sets of rings from the sequence, pulled apart by the sound, beating against each other */
+function MOIRE() {
+  return { draw(S) {
+    const s = SEQ[S.sel], sw = 2 + 4 * (1 - S.cutN), ratio = 1 + S.clk / 127 * 0.2;
+    const d = 4 + 26 * S.mv + S.driftV * 16, phi = S.rot * 3.1416, flow = Math.floor(S.rot * 10);
+    const cs = [[120 - Math.cos(phi) * d / 2, 70 - Math.sin(phi) * d / 2, 1, K(0)], [120 + Math.cos(phi) * d / 2, 70 + Math.sin(phi) * d / 2, ratio, K(3)]];
+    const lw = 1 + S.colN * sw * 0.7, base = (0.5 + 0.45 * Math.max(S.lvl, 0.2)) / (1 + S.colN);
+    for (const [cx, cy, rt, col] of cs) {
+      const w = sw * rt, J = Math.ceil(150 / w);
+      g.strokeStyle = col; g.lineWidth = lw;
+      const ring = (r, a) => { if (a < 0.01) return; setA(a); g.beginPath(); g.arc(cx, cy, r, 0, 6.2832); g.stroke(); };
+      for (let j = 1; j < J; j++) {   /* RES: from the runs (low-pass) to their edges only (band-pass) */
+        const b = seqBit(s, ((j - flow) % s.len + s.len) % s.len), b0 = seqBit(s, ((j - 1 - flow) % s.len + s.len) % s.len);
+        if (b) ring(j * w, base * (1 - S.resN));
+        if (b !== b0) ring((j - 0.5) * w, base * S.resN);
+      }
+    }
+    g.font = "8px ui-monospace,Consolas,monospace"; g.textBaseline = "top"; g.fillStyle = C.mid; setA(1); g.fillText(META_N[S.sel], 3, 3);
+  } };
+}
+
+/* ================= the drawings, their legends ================= */
+const VIS = {
+  ANLG: [
+    { name: "FLOW", make: FLOW, keys: [
+      ["COLR", "the field's grain: white tangled and fine, brown long smooth swirls"],
+      ["FREQ", "the streaks' speed and length (TRK: by the note); with RES, the ring's size"],
+      ["RES", "pulls the flow into an orbit: a narrow band, a narrow ring"],
+      ["DRFT", "the wind wanders, the whole field leaning"],
+      ["CRSH", "eight directions only, snapped to a coarse grid"]] },
+    { name: "TOPO", make: TOPO, keys: [
+      ["COLR", "the terrain: white craggy, brown rolling hills"],
+      ["FREQ", "how many contour lines (3 .. 12)"],
+      ["RES", "one contour picked out and sweeping, the others fading"],
+      ["DRFT", "the map slides about"],
+      ["CRSH", "a coarser survey: blocky, stepped contours"]] },
+    { name: "THREADS", make: THREADS, keys: [
+      ["COLR", "the shake: white fine fuzz, brown slow swells"],
+      ["FREQ", "how fast the threads wiggle along their length; the plucks' pitch"],
+      ["RES", "draws the threads into one tight, moving bundle; plucks ring longer"],
+      ["DENS", "each impulse plucks a thread, the kink running both ways"],
+      ["DRFT", "the bundle sways up and down"],
+      ["CRSH", "the threads turn to staircases"]] },
+  ],
+  DUST: [
+    { name: "STARS", make: STARS, keys: [
+      ["DENS", "a star a click (the engine's own impulses)"],
+      ["COLR", "white: scattered anywhere; brown: a wandering trail, stars bigger"],
+      ["FREQ", "short links between near stars (high) or long constellations (low); the twinkle's rate"],
+      ["RES", "the stars ring: they last longer and pulse"],
+      ["DRFT", "the sky drifts in the wind"],
+      ["CRSH", "stars on a coarse grid, fewer shades"]] },
+    { name: "CRACKLE", make: CRACKLE, keys: [
+      ["DENS", "a click, a new crack, mostly branching off an old one"],
+      ["COLR", "how long the cracks stay: white soon gone, brown a whole glaze"],
+      ["FREQ", "jagged: short wandering steps (high) or long straight runs (low)"],
+      ["RES", "crystalline: branches square to their crack, straighter"],
+      ["DRFT", "the cracks bend one way"],
+      ["CRSH", "angles of 45 degrees only, snapped"]] },
+    { name: "RAIN", make: RAIN, keys: [
+      ["DENS", "a drop a click, falling and splashing on a puddle"],
+      ["COLR", "drizzle (white) to fat drops (brown)"],
+      ["FREQ", "tight rings and more crown droplets (high), wide slow rings (low)"],
+      ["RES", "rings per splash (1 .. 5) and how long they ring"],
+      ["DRFT", "the wind slants the rain"],
+      ["CRSH", "pixelated splashes, fewer shades"]] },
+  ],
+  LFSR: [
+    { name: "SHIFT", make: SHIFT, keys: [
+      ["LEN", "the register: 23 .. 7 cells across"],
+      ["CLK", "how fast it clocks (with the note), a new row each clock"],
+      ["COLR", "white crisp bits, brown smeared into their neighbours"],
+      ["FREQ", "the rows' height: fine (high) to tall (low)"],
+      ["RES", "lights the feedback taps' columns"],
+      ["DRFT", "shears and sways the waterfall"]] },
+    { name: "MAZE", make: MAZE, keys: [
+      ["LEN", "the register writing it; L7 shows its 127-step repeat as stripes"],
+      ["CLK", "how fast the maze scrolls, a tile a clock"],
+      ["FREQ", "the tile size: small (high) to big (low)"],
+      ["RES", "diagonals (10 PRINT) to quarter circles (Truchet)"],
+      ["COLR", "fills one side of each wall: white none, brown bold"],
+      ["DRFT", "the rows wave"]] },
+    { name: "BARS", make: BARS, keys: [
+      ["LEN", "the register; its output bit along the bottom"],
+      ["CLK", "how fast the skyline scrolls"],
+      ["COLR", "white: blocky +-1 bars; brown: a random-walk skyline"],
+      ["FREQ", "the filter on the bars: smooth (low) to sharp (high)"],
+      ["RES", "low-pass to band-pass: the bars ring and overshoot"],
+      ["DRFT", "slices the picture and jolts the slices on each clock"]] },
+    { name: "NECKLACE", make: NECKLACE, keys: [
+      ["LEN", "the cells round the ring: 23 .. 7"],
+      ["CLK", "how fast the bits slide round (with the note)"],
+      ["RES", "the feedback taps: chords from the output, flashing when they flip a bit"],
+      ["FREQ", "the beads: big (low) to small (high)"],
+      ["COLR", "a glow round the lit beads, softer towards brown"],
+      ["DRFT", "the ring wobbles"]] },
+    { name: "CONSTELLATION", make: CONSTELLATION, keys: [
+      ["LEN", "L7 .. L9: a few points on a lattice; L23: noise"],
+      ["CLK", "how fast the points come (four a clock)"],
+      ["COLR", "how long they stay: white soon gone, brown a whole sky"],
+      ["FREQ", "the stars' size: big (low) to small (high)"],
+      ["RES", "joins each point to the next"],
+      ["DRFT", "turns and sways the field"]] },
+    { name: "CRITTERS", make: CRITTERS, keys: [
+      ["LEN", "the register printing them; short ones run through a smaller family"],
+      ["CLK", "how fast they are printed, a bit a clock (18 a critter)"],
+      ["FREQ", "their size: big (low) to small (high)"],
+      ["COLR", "white crisp pixels, pink gapped, brown round dots"],
+      ["RES", "they bounce when a new one is done, ringing"],
+      ["DRFT", "they sway as they march"]] },
+  ],
+  META: [
+    { name: "CHLADNI", make: CHLADNI, keys: [
+      ["LEN", "the plate's mode (n, m): long sequences, busier figures; B: the other symmetry"],
+      ["FREQ", "higher modes"],
+      ["CLK", "higher modes too, every 32"],
+      ["RES", "the sand gathers in sharper, thinner lines"],
+      ["COLR", "white: grains jump; brown: they slide (momentum)"],
+      ["DRFT", "morphs towards the next mode, the sand migrating"]] },
+    { name: "ROSETTE", make: ROSETTE, keys: [
+      ["LEN", "the edge of every ring: one period of the sequence"],
+      ["FREQ", "sharp teeth (high) to rounded petals (low)"],
+      ["RES", "ripples and overshoot on the teeth"],
+      ["COLR", "smooths the teeth (pink, brown)"],
+      ["CLK", "the gear ratio between the rings (with the note: their speed)"],
+      ["DRFT", "the rings wobble off centre"]] },
+    { name: "MOIRE", make: MOIRE, keys: [
+      ["LEN", "the rings' pattern, flowing outward while it sounds"],
+      ["FREQ", "ring spacing: tight (high) to wide (low)"],
+      ["CLK", "detunes the second set: beating fringes"],
+      ["RES", "rings on the runs (low-pass) to rings on the edges (band-pass)"],
+      ["COLR", "thin crisp rings (white) to thick soft bands (brown)"],
+      ["DRFT", "pushes the two centres apart; the level does too"]] },
+  ],
+};
+const KNOB_I = { MODE: 0, COLR: 1, FREQ: 2, RES: 3, TRK: 4, DENS: 5, LEN: 5, DRFT: 6, CRSH: 7, CLK: 7 };
+
+/* ================= cards ================= */
+let view = "ANLG", cards = [];
+function buildCards() {
+  const host = document.getElementById("cards"); host.innerHTML = ""; cards = [];
+  const list = view === "ALL" ? MODES.flatMap(m => VIS[m].map((v, i) => [m, i, v])) : VIS[view].map((v, i) => [view, i, v]);
+  for (const [m, i, v] of list) {
+    const el = document.createElement("div"); el.className = "card";
+    el.innerHTML = `<h2>${m} ${i + 1} · <b>${v.name}</b></h2><div class="screen"><canvas width="240" height="140"></canvas></div>
+      <ul>${v.keys.map(([k, t]) => `<li><b style="color:${pal === "mrc" ? ACC[KNOB_I[k] & 3] : C.text}">${k}</b> ${t}</li>`).join("")}</ul>`;
+    host.appendChild(el);
+    cards.push({ g: el.querySelector("canvas").getContext("2d"), vis: v.make() });
+  }
+}
+
+/* ================= knobs ================= */
+const fmtHz = v => { const f = 30 * Math.pow(16000 / 30, v / 127); return f >= 1000 ? (f / 1000).toFixed(1) + "k" : Math.round(f) + "Hz"; };
+const ui = [];
+function knobLabel(i) { return i === 5 && P[0] >= 2 ? "LEN" : i === 7 && P[0] >= 2 ? "CLK" : ["MODE", "COLR", "FREQ", "RES", "TRK", "DENS", "DRFT", "CRSH"][i]; }
+function knobText(i) {
+  const v = P[i];
+  if (i === 0) return MODES[v];
+  if (i === 2) return fmtHz(v);
+  if (i === 5 && P[0] >= 2) return (P[0] === 2 ? LONG_N : META_N)[(v >> 4) & 7];
+  if (i === 7 && P[0] >= 2) return v + "st";
+  return Math.round(v * 100 / 127) + "%";
+}
+for (let i = 0; i < 8; i++) {
+  const el = document.createElement("div"); el.className = "k";
+  el.innerHTML = i === 0 ? `<b></b><select>${MODES.map((m, j) => `<option value="${j}">${m}</option>`).join("")}</select><span></span>`
+                         : `<b></b><input type="range" min="0" max="127" value="${P[i]}"><span></span>`;
+  const inp = el.querySelector("input,select"), lab = el.querySelector("b"), out = el.querySelector("span");
+  inp.addEventListener("input", () => { P[i] = +inp.value; if (i === 0 && view !== "ALL") setMode(MODES[P[0]], false); refresh(); sync(); });
+  ui.push({ inp, lab, out });
+  document.getElementById(i < 4 ? "p1" : "p2").appendChild(el);
+}
+function refresh() {
+  ui.forEach((u, i) => {
+    u.lab.textContent = knobLabel(i); u.lab.style.color = pal === "mrc" ? ACC[i & 3] : C.text;
+    u.out.textContent = knobText(i); if (+u.inp.value !== P[i]) u.inp.value = P[i];
+  });
+  [...document.getElementById("modes").children].forEach(b => b.classList.toggle("on", b.dataset.v === view));
+}
+function setMode(m, setParam = true) {
+  view = m;
+  if (setParam && m !== "ALL") { P[0] = MODES.indexOf(m); sync(); }
+  buildCards(); refresh();
+}
+const modesEl = document.getElementById("modes");
+[...MODES, "ALL"].forEach(m => {
+  const b = document.createElement("button"); b.textContent = m === "ALL" ? "ALL 12" : m; b.dataset.v = m;
+  b.onclick = () => setMode(m); modesEl.appendChild(b);
+});
+const preEl = document.getElementById("presets");
+Object.entries(PRESETS).forEach(([n, v]) => {
+  const b = document.createElement("button"); b.textContent = n;
+  b.onclick = () => {
+    P.splice(0, 8, ...v.p); ADSR = v.adsr.slice();
+    [...preEl.children].forEach(c => c.classList.toggle("on", c === b));
+    if (view !== "ALL") setMode(MODES[P[0]], false); else refresh();
+    sync();
+  };
+  preEl.appendChild(b);
+});
+document.getElementById("zoom").onchange = e => document.documentElement.style.setProperty("--cw", 240 * +e.target.value + "px");
+document.getElementById("pal").onchange = e => { pal = e.target.value; buildCards(); refresh(); };
+setMode("ANLG");
+
+/* ================= the loop ================= */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  updateS(dt, now);
+  for (const c of cards) {
+    g = c.g; g.globalAlpha = 1; g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+    c.vis.draw(S);
+    g.globalAlpha = 1;
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

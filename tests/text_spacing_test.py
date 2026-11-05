@@ -177,6 +177,11 @@ def main():
     spec = {n: (font, px) for n, font, px, *_ in gf.preset("inter-tight")}
     bad = 0
     for name, f in faces.items():
+        if name not in LIMIT:
+            # MRC's display faces (X XB SL: the boot screen's words, the tempo digits) hold a few glyphs and none of
+            # the words below; one phase each, their spacing is the font's own at the rounded pen
+            print(f"  {name}: a display face, not measured")
+            continue
         font, px = spec[name]
         font_hi = ar.open_font(font, px * SS)
         words = LOWER if f["last"] >= ord("z") else UPPER

@@ -30,10 +30,10 @@ static int32_t cv_trk(int32_t x, int32_t y, uint32_t size, uint32_t k, uint16_t 
     return (int32_t)size;
 }
 
-/* icon id's cell number at *size 12, 16 or 24 px (missing at 16 or 24: its 12 px cell, *size 12), -1: none */
+/* icon id's cell number at *size 12, 16 or 40 px (missing at 16 or 40: its 12 px cell, *size 12), -1: none */
 static int32_t icon_cell(uint32_t *size, uint32_t id)
 {
-    const uint8_t *idx = *size == 24u ? AI24_IDX : *size == 16u ? AI16_IDX : AI12_IDX;
+    const uint8_t *idx = *size == 40u ? AI40_IDX : *size == 16u ? AI16_IDX : AI12_IDX;
     if (id >= ICON_COUNT)
         return -1;
     if (idx[id] == 0xFFu) {
@@ -55,8 +55,8 @@ static void icon_ink(uint32_t size, uint32_t id, int32_t *b)
         b[2] = b[3] = (int32_t)size - in;
         return;
     }
-    if (sz == 24u) {
-        v = AI24_INK[k];                            /* x0 y0 x1 y1: a byte each */
+    if (sz == 40u) {
+        v = AI40_INK[k];                            /* x0 y0 x1 y1: a byte each */
     } else {                                        /* 12 16: a nibble each, x1-1 y1-1: as the 24's */
         v = sz == 16u ? AI16_INK[k] : AI12_INK[k];
         v = ((v & 15u) | (v & 0xF0u) << 4 | (v & 0xF00u) << 8 | (v & 0xF000u) << 12) + 0x01010000u;
@@ -65,7 +65,7 @@ static void icon_ink(uint32_t size, uint32_t id, int32_t *b)
         b[i] = (int32_t)(v >> (8u * i) & 255u);
 }
 
-/* icon id at size 12, 16 or 24 px (24: the header battery and USB, the FX map; one missing: its 12 px cell),
+/* icon id at size 12, 16 or 40 px (MRC, 40: the tempo screen's metronome; one missing: its 12 px cell),
  * fg on bg; returns its width */
 static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint16_t fg, uint16_t bg)
 {
@@ -74,7 +74,7 @@ static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint
         return cv_trk(x, y, size, id - ICON_TRK, fg, bg);
     if ((k = icon_cell(&size, id)) < 0)
         return 0;
-    cv_alpha_hc(x, y, size, size, size == 24u ? AI24_DATA + AI24_OFF[k] : size == 16u ? AI16_DATA + AI16_OFF[k] :
+    cv_alpha_hc(x, y, size, size, size == 40u ? AI40_DATA + AI40_OFF[k] : size == 16u ? AI16_DATA + AI16_OFF[k] :
                 AI12_DATA + AI12_OFF[k], AI_HC, ramp(fg, bg));
     GFX_HOOK_ICON(x, y, size, id);
     GFX_HOOK_TEXT(x, y + cv_oy, x + (int32_t)size, y + cv_oy + (int32_t)size, "icon", 4u);
@@ -129,7 +129,7 @@ static const icon_map_t ICON_MAP[] = {
     /* global */
     {"BPM", ICON_TEMPO}, {"CLK", ICON_TEMPO}, {"TUNE", ICON_TUNE}, {"TIME", ICON_TIME},
     {"FDBK", ICON_FEEDBACK}, {"COLR", ICON_TONE}, {"MIX", ICON_MIX}, {"SIZE", ICON_SIZE},
-    {"DAMP", ICON_DAMP}, {"TYPE", ICON_REVERB}, {"CRT", ICON_RATE}, {"CDP", ICON_MOD}, {"MIDI", ICON_MIDI},
+    {"DAMP", ICON_DAMP}, {"TYPE", ICON_REVERB}, {"DPTH", ICON_MOD},{"MIDI", ICON_MIDI},
     {"SYNC", ICON_TEMPO}, {"ROUT", ICON_MIX}, {"CPU", ICON_CHIP}, {"SLOT", ICON_SAVE},
     {"LOAD", ICON_LOAD}, {"SAVE", ICON_SAVE}, {"ENG", ICON_WAVE}, {"CLRSQ", ICON_CLEAR},
     {"INIT", ICON_CLEAR}, {"ERASE", ICON_CLEAR}, {"CH", ICON_MIDI}, {"LEVEL", ICON_LEVEL},
@@ -263,17 +263,13 @@ static uint32_t engine_icon(const char *name)
     return ICON_GENERIC;
 }
 
-/* MOTION: the knob and its trace; recording into it (REC armed on the selected track, playing): its REC form */
-static uint32_t motion_icon(void) { return rec_on(TSEL) ? ICON_X_MOTION_REC : ICON_X_MOTION; }
-
 /* the icon beside a page's title in the footer (the pages that have one of their own; else ICON_NONE) */
 static uint32_t page_icon(const page_t *pg)
 {
     switch (pg->graph) {
     case GR_TRK: return ICON_X_MIXER;         /* MIXER (HOME): vertical faders */
-    case GR_PATS: return ICON_X_PATTERN;      /* SAVE > PHRASES: the pattern loader */
+    case GR_PATS: return ICON_X_PATTERN;      /* GLO > PATTERNS: the pattern loader */
     case GR_SONG: return ICON_X_SONG;         /* SONG: the disc */
-    case GR_EVENTS: return motion_icon();     /* AUTOMATION */
     default: return ICON_NONE;
     }
 }
@@ -284,6 +280,5 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v) { (void)d; (void)v;
 static uint32_t engine_icon(const char *name) { (void)name; return ICON_NONE; }
 static uint32_t mod_src_icon(int32_t s) { (void)s; return ICON_NONE; }
 static uint32_t mod_dst_icon(const track_t *t, int32_t d) { (void)t; (void)d; return ICON_NONE; }
-static uint32_t motion_icon(void) { return ICON_NONE; }
 static uint32_t page_icon(const page_t *pg) { (void)pg; return ICON_NONE; }
 #endif

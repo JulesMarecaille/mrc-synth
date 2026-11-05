@@ -1,0 +1,1006 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PHYS Visuals</title>
+<style>
+  :root { --bg:#141414; --surf:#1f1f1f; --raise:#2a2a2a; --text:#E4DCC8; --mid:#8a8578; --dim:#4a4740; --line:#2e2c28;
+          --a1:#FBE8A6; --a2:#F3BA5A; --a3:#F79B7A; --a4:#EB5560; --cw:480px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace,Consolas,monospace; }
+  main { max-width:1520px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:15px; letter-spacing:.12em; margin:0 0 4px; color:var(--a2); }
+  p.sub { margin:0 0 14px; color:var(--mid); max-width:900px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0; }
+  .row .gap { width:12px; }
+  .row label { color:var(--mid); display:flex; gap:6px; align-items:center; }
+  button, select { background:var(--raise); color:var(--text); border:1px solid var(--dim); border-radius:6px;
+                   font:inherit; padding:6px 10px; cursor:pointer; }
+  button:hover { border-color:var(--mid); }
+  button.on { background:var(--a2); color:#141414; border-color:var(--a2); }
+  #modes button { min-width:64px; letter-spacing:.08em; }
+  #modes button.on { background:var(--a1); border-color:var(--a1); }
+  #play { background:var(--a4); color:#141414; border-color:var(--a4); font-weight:bold; padding:8px 20px; user-select:none; touch-action:none; }
+  #play.held { background:var(--a1); border-color:var(--a1); }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, var(--cw)), 1fr)); gap:18px; margin:14px 0 18px; }
+  .card { min-width:0; }
+  .card h2 { font-size:13px; font-weight:normal; margin:0 0 6px; color:var(--mid); letter-spacing:.06em; }
+  .card h2 b { color:var(--text); font-weight:600; }
+  .screen { background:#000; padding:6px; border-radius:8px; display:inline-block; max-width:100%; }
+  .screen canvas { display:block; width:var(--cw); max-width:100%; aspect-ratio:240/140; image-rendering:pixelated; }
+  .card ul { margin:8px 0 0; padding-left:16px; color:var(--mid); font-size:12px; }
+  .card li { margin:1px 0; }
+  .card li b { font-weight:600; }
+  .pages { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:14px; }
+  fieldset { border:1px solid var(--line); border-radius:8px; padding:8px 12px 10px; margin:0; background:var(--surf); }
+  legend { color:var(--mid); padding:0 6px; }
+  .k { display:grid; grid-template-columns:48px 1fr 70px; gap:8px; align-items:center; margin:5px 0; }
+  .k b { font-weight:600; }
+  .k span { text-align:right; color:var(--text); }
+  .k input { width:100%; }
+  .k select { width:100%; padding:3px 6px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:10px; }
+  kbd { border:1px solid var(--dim); border-radius:3px; padding:0 4px; color:var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <h1>PHYS · EDIT DRAWINGS</h1>
+  <p class="sub">The picked drawings (STRNG, SYMP) and new experiments (MODAL, MEMB), at the panel's 240 × 140 and the MRC accents. Hold <kbd>PLAY</kbd>
+    (or <kbd>Space</kbd>, or the keys <kbd>A</kbd>…<kbd>K</kbd>), or turn on <kbd>AUTO</kbd>, and turn the knobs below.
+    Silent, each drawing holds still and shows the knobs; a note strikes, plucks or bows it.</p>
+
+  <div class="row" id="modes"></div>
+
+  <div class="row">
+    <button id="play">PLAY</button>
+    <button id="latch">LATCH</button>
+    <button id="auto">AUTO</button>
+    <button id="sound" class="on">SOUND ON</button>
+    <label>note <select id="note"></select></label>
+    <span class="gap"></span>
+    <span style="color:var(--mid)">presets</span><span id="presets" class="row" style="margin:0"></span>
+    <span class="gap"></span>
+    <label>zoom <select id="zoom"><option>1</option><option>1.5</option><option selected>2</option><option>3</option></select></label>
+    <label>palette <select id="pal"><option value="mrc">MRC (accents)</option><option value="mono">other (one colour)</option></select></label>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="pages">
+    <fieldset><legend>EDIT 1 · BODY</legend><div id="p1"></div></fieldset>
+    <fieldset><legend>EDIT 2 · EXCT</legend><div id="p2"></div></fieldset>
+  </div>
+  <p class="hint">The sound is a JavaScript port, in floats, of <code>eng_phys.c</code> / <code>phys_dsp.c</code> /
+    <code>phys_symp.c</code>: MODAL's 12 modes (STRC's stiffness, the Q per mode, the strike through its low-pass, BOW's
+    Dust), MEMB's Bessel modes blended to the loaded head with the BEND drop, the Karplus-Strong string (curved bridge
+    or dispersion, the burst with POS's comb) and SYMP's three sympathetic strings on CHRD. One voice, full velocity,
+    the preset's ADSR. The drawings take the knobs and the voice's own state: each mode's amplitude, the string's
+    delay line, the sympathetic strings' energies, the bend; slowed so the eye can follow.</p>
+</main>
+
+<script>
+/* ================= the engine's tables (eng_phys.c, phys_dsp.c) ================= */
+const MODELS = ["MODAL", "STRNG", "MEMB", "SYMP"];
+const CHORD_N = ["OCT", "5TH", "4TH", "MAJ", "MIN", "SUS", "7TH", "ROOT"];
+const CHORDS = [[-1200, 1200, 2400], [700, 1200, 1900], [500, 1200, 1700], [400, 700, 1200],
+                [300, 700, 1200], [200, 700, 1400], [400, 700, 1000]];
+const MEMB_I = [1, 1.59332, 2.13554, 2.29541, 2.65306, 2.91730, 3.15547, 3.50015, 3.59848, 3.64744];
+const MEMB_L = [1, 2, 3, 3.00999, 4, 3.99000, 5, 5.01999, 4.97998, 6];
+const MEMB_M = [0, 1, 2, 0, 3, 1, 4, 2, 0, 5];
+const MEMB_J = [2.4048, 3.8317, 5.1356, 5.5201, 6.3802, 7.0156, 7.5883, 8.4172, 8.6537, 8.7715];   /* j_mn: the shapes */
+
+/* {MODEL, E1..E7}, the ADSR (eng_phys.c PHYS_PRESETS) */
+const PRESETS = {
+  "BELL TREE":    { p: [0, 70, 100, 106, 12, 100, 0, 6],  adsr: [0, 100, 127, 96] },
+  "MARIMBA":      { p: [0, 116, 38, 40, 24, 90, 0, 30],   adsr: [0, 90, 127, 52] },
+  "PLUCK":        { p: [1, 56, 72, 84, 40, 96, 0, 0],     adsr: [0, 100, 127, 58] },
+  "BOWED METAL":  { p: [0, 98, 70, 112, 10, 80, 90, 0],   adsr: [60, 90, 127, 90] },
+  "KALIMBA":      { p: [0, 34, 16, 56, 100, 90, 0, 48],   adsr: [0, 100, 127, 60] },
+  "HAND DRUM":    { p: [2, 112, 76, 56, 44, 100, 14, 24], adsr: [0, 100, 127, 64] },
+  "TOMS":         { p: [2, 0, 52, 40, 30, 100, 40, 30],   adsr: [0, 100, 127, 70] },
+  "DRONE STRING": { p: [3, 127, 80, 88, 64, 100, 92, 0],  adsr: [0, 100, 127, 90] },
+  "HARP":         { p: [3, 8, 62, 74, 60, 90, 0, 0],      adsr: [0, 100, 127, 80] },
+};
+const P = [0, 70, 100, 106, 12, 100, 0, 6];
+let ADSR = [0, 100, 127, 96];
+
+/* ================= the model's maths, shared by the page and the worklet ================= */
+/* Resonator::CalcStiff */
+function stiffOf(s) {
+  if (s < 0.25) return -(0.25 - s) / 4;
+  if (s < 0.3) return 0;
+  if (s < 0.9) return (s - 0.3) / 0.6;
+  const u = ((s - 0.9) * 10) ** 2;
+  return 1.5 - Math.cos(Math.PI * u) / 2;
+}
+/* the modes of MODAL / MEMB: frequency (cycles / sample), level, Q; f0 cycles / sample, p the knobs, acc 0..1, bend in
+ * semitones already applied by the caller (MEMB) */
+function modeSet(md, p, f0, acc) {
+  const s = p[1] / 127, br = p[2] / 127, dm = p[3] / 127, pos = p[4] / 127;
+  const b = br + acc / 4 * (1 - br), d = dm + acc / 4 * (1 - dm);
+  const out = { f: [], a: [], q: [], r: [] };
+  if (md === 2) {                                        /* MEMB: px_memb_block */
+    let q = 500 * Math.pow(2, d * 13.283);
+    const bb = b * (1 - 0.3 * d), ql = bb * (2 - bb) * 0.85 + 0.15;
+    const w = [1 - 0.6 * pos]; const pm = Math.min(1, 1.5 * pos);
+    for (let m = 1; m < 6; m++) w[m] = Math.pow(pm, m);
+    for (let i = 0; i < 10; i++) {
+      const r = MEMB_I[i] + (MEMB_L[i] - MEMB_I[i]) * s, mf = f0 * r;
+      if (mf >= 0.499) break;
+      out.f.push(mf); out.r.push(r); out.q.push(1 + mf * q);
+      out.a.push(w[MEMB_M[i]] * (1 - 2 * mf) / (r * r));
+      q *= ql;
+    }
+    return out;
+  }
+  const st = stiffOf(s);                                 /* MODAL: px_modal_block */
+  const fc = f0 / (1 + st + st * (st < 0 ? 0.93 : 0.98));
+  let q = 500 * Math.pow(2, d * 13.283);
+  const bb = b * (1 - 0.3 * s) * (1 - 0.3 * d), ql = bb * (2 - bb) * 0.85 + 0.15;
+  let stretch = 1, st2 = st, harm = fc;
+  for (let i = 0; i < 12; i++) {
+    const mf = harm * stretch;
+    if (mf >= 0.499) break;
+    out.f.push(mf); out.r.push(mf / f0); out.q.push(1 + mf * q);
+    out.a.push(Math.cos(2 * Math.PI * pos * 0.25 * i) / 4 * (1 - 2 * mf));
+    stretch += st2; st2 *= st2 < 0 ? 0.93 : 0.98; harm += fc; q *= ql;
+  }
+  return out;
+}
+/* SYMP: the sympathetic strings over the note (semitones), CHRD's or ROOT's (root C) */
+function sympSemis(p, note) {
+  const c = p[1] >> 4, det = [1, -1, 0];
+  return [0, 1, 2].map(k => (c < 7 ? note + CHORDS[c][k] / 100 : 48 + (k === 1 ? 7 : k === 2 ? 12 : 0)) + det[k] / 16);
+}
+/* the string's non-linearity: < 0 curved bridge, > 0 dispersion (StringVoice::SetStructure) */
+function nlOf(s) { return Math.max(-1, Math.min(1, s < 0.24 ? (s - 0.24) * 4.166 : s > 0.26 ? (s - 0.26) * 1.3514 : 0)); }
+
+/* ================= envelope (the page and the worklet) ================= */
+function envRate(v, slow) { return 1 / (0.002 + Math.pow(v / 127, 2) * slow); }
+function envStep(e, dt, adsr) {
+  const a = adsr[0], d = adsr[1], sl = adsr[2] / 127, r = adsr[3];
+  if (e.stage === 1) { e.lvl += dt * envRate(a, 3); if (e.lvl >= 1) { e.lvl = 1; e.stage = 2; } }
+  else if (e.stage === 2) { e.lvl += (sl - e.lvl) * Math.min(1, dt * envRate(d, 2.5) * 3); }
+  else if (e.stage === 3) { e.lvl -= e.lvl * Math.min(1, dt * envRate(r, 3) * 3); if (e.lvl < 1e-4) { e.lvl = 0; e.stage = 0; } }
+}
+
+/* ================= the sound: the models in floats ================= */
+const DSP = `
+const CHORDS = ${JSON.stringify(CHORDS)}, MEMB_I = ${JSON.stringify(MEMB_I)}, MEMB_L = ${JSON.stringify(MEMB_L)}, MEMB_M = ${JSON.stringify(MEMB_M)};
+${stiffOf.toString()}
+${modeSet.toString()}
+${sympSemis.toString()}
+${nlOf.toString()}
+${envRate.toString()}
+${envStep.toString()}
+const TAU = 2 * Math.PI, GAIN = [0.854, 0.73, 2.75, 0.73];   /* (the strings twice the engine's: the port is quieter) */
+function svfLP(st, x, g, k) {                            /* TPT state-variable low-pass */
+  const a1 = 1 / (1 + g * (g + k)), v1 = a1 * (st.ic1 + g * (x - st.ic2)), v2 = st.ic2 + g * v1;
+  st.ic1 = 2 * v1 - st.ic1; st.ic2 = 2 * v2 - st.ic2; return v2;
+}
+class Line {                                             /* a string's delay loop */
+  constructor(n) { this.l = new Float32Array(n); this.m = n - 1; this.w = 0; }
+  read(d) { const p = this.w - d, i = Math.floor(p), f = p - i, m = this.m; return this.l[i & m] + (this.l[(i + 1) & m] - this.l[i & m]) * f; }
+  write(x) { this.w = (this.w + 1) & this.m; this.l[this.w] = x; }
+}
+class PhysVoice {
+  constructor(sr) {
+    this.sr = sr; this.p = [0, 64, 80, 80, 20, 90, 0, 0]; this.adsr = [0, 100, 127, 80]; this.note = 48;
+    this.e = { lvl: 0, stage: 0 }; this.rng = 0x6A09E667; this.md = -1;
+    this.zr = new Float64Array(12); this.zi = new Float64Array(12); this.ma = new Float32Array(12);
+    this.ex = { ic1: 0, ic2: 0 }; this.trig = 0; this.benv = 0;
+    this.str = new Line(4096); this.lp = 0; this.ap = [0, 0, 0, 0]; this.bk = 0; this.bn = 0; this.bd = 0; this.burst = new Float32Array(4096);
+    this.sy = [new Line(4096), new Line(4096), new Line(4096)]; this.syx = [0, 0, 0]; this.syE = [0, 0, 0]; this.mainE = 0;
+    this.dcx = 0; this.dcy = 0; this.strikes = 0; this.dusts = 0; this.last = 0;
+  }
+  rnd() { let x = this.rng; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; this.rng = x; return (x >>> 0) / 4294967296; }
+  reset() {
+    this.zr.fill(0); this.zi.fill(0); this.ex.ic1 = this.ex.ic2 = 0;
+    this.str.l.fill(0); this.lp = 0; this.ap = [0, 0, 0, 0]; this.bn = 0;
+    for (const s of this.sy) s.l.fill(0); this.syx = [0, 0, 0]; this.dcx = this.dcy = 0;
+  }
+  noteOn(note) {
+    const md = this.p[0];
+    if ((!this.e.stage && this.e.lvl < 1e-3) || md !== this.md) this.reset();   /* a fresh voice: from rest */
+    this.md = md; this.note = note; this.trig = 1; this.e.stage = 1; this.strikes++;
+  }
+  noteOff() { if (this.e.stage) this.e.stage = 3; }
+  /* n samples into o; one block's coefficients */
+  render(o, n) {
+    const p = this.p, md = p[0], sr = this.sr;
+    if (md !== this.md) { this.reset(); this.md = md; }
+    const acc = p[5] / 127, f0 = 440 * Math.pow(2, (this.note - 69) / 12) / sr;
+    for (let i = 0; i < n; i++) o[i] = 0;
+    if (!this.e.stage && this.e.lvl <= 0) { this.decayMeters(n); return; }
+    if (md === 0 || md === 2) this.modal(o, n, md, f0, acc);
+    else this.string(o, n, md, f0, acc);
+    const g = GAIN[md];
+    for (let i = 0; i < n; i++) {
+      envStep(this.e, 1 / sr, this.adsr);
+      let s = o[i] * g, a = Math.abs(s);
+      if (a > 0.73) { a = 0.73 + Math.tanh((a - 0.73) * 2) * 0.27; s = s < 0 ? -a : a; }
+      o[i] = s * this.e.lvl * 0.7;
+    }
+  }
+  decayMeters(n) { const k = Math.exp(-n / (0.05 * this.sr)); for (let i = 0; i < 12; i++) this.ma[i] *= k; }
+  dust(b, d, acc, bow, two) {                            /* Dust: density 0.3 (5e-5 + b^4) */
+    const df = 4.6e-5 + b * b * b * b, thr = 0.3 * df;
+    const g = (two ? 8 - 6 * df : 4 - 3 * df) * acc * bow * Math.pow(2, -d * 3.32);
+    const u = this.rnd();
+    if (u < thr) { this.dusts++; return (u / thr) * g - thr * g * 0.5; }
+    return -thr * g * 0.5;
+  }
+  modal(o, n, md, f0n, acc) {
+    const p = this.p, br = p[2] / 127, dm = p[3] / 127, bow = md === 0 ? p[6] / 127 * 0.4 : 0;
+    const b = br + acc / 4 * (1 - br), d = dm + acc / 4 * (1 - dm);
+    let f0 = f0n;
+    if (md === 2) {                                      /* the bend: f 2^(bend benv / 12), ~60 ms */
+      if (this.trig) this.benv = 1;
+      f0 *= Math.pow(2, p[6] / 127 * 12 * this.benv / 12);
+      this.benv *= Math.pow(0.98, n / 32); if (this.benv < 1e-3) this.benv = 0;
+    }
+    const f0c = Math.min(f0, 0.25);
+    const exo = (b * (2 - b) - 0.5) * (bow ? 3 : 5);
+    const cut = Math.max(1.5e-5, Math.min(0.499, f0c * (bow ? 4 : 2) * Math.pow(2, exo)));
+    const eg = Math.tan(Math.PI * cut), ek = bow ? 1 / 0.7 : 1 / 1.5;
+    let strike = 0;
+    if (!bow && this.trig) strike = (0.12 + 0.08 * acc) * (1 - d / 2) * Math.pow(2, 2 * cut * cut) / cut;
+    this.trig = 0;
+    const M = modeSet(md, p, f0, acc), nm = M.f.length;
+    const cr = [], ci = [], gin = [], amp = M.a;
+    for (let i = 0; i < nm; i++) {
+      const rr = Math.exp(-Math.PI * M.f[i] / M.q[i]), w = TAU * M.f[i];
+      cr.push(rr * Math.cos(w)); ci.push(rr * Math.sin(w)); gin.push(2 * Math.tan(Math.PI * M.f[i]));
+    }
+    for (let i = nm; i < 12; i++) { this.zr[i] = this.zi[i] = 0; this.ma[i] = 0; }
+    const zr = this.zr, zi = this.zi;
+    for (let j = 0; j < n; j++) {
+      let x = j === 0 ? strike : 0;
+      if (bow) x += this.dust(br, d, acc, bow, false);
+      const e = svfLP(this.ex, x, eg, ek);
+      let y = 0;
+      for (let i = 0; i < nm; i++) {
+        const r = zr[i] * cr[i] - zi[i] * ci[i] + e * gin[i], im = zr[i] * ci[i] + zi[i] * cr[i];
+        zr[i] = r; zi[i] = im; y += im * amp[i];
+      }
+      o[j] = y + e * p[7] / 127 * 0.5;
+    }
+    for (let i = 0; i < nm; i++) this.ma[i] = Math.hypot(zr[i], zi[i]) * Math.abs(amp[i]);
+    this.ratios = M.r; this.nm = nm;
+  }
+  string(o, n, md, f0, acc) {
+    const p = this.p, sr = this.sr, br = p[2] / 127, dm = p[3] / 127;
+    const sym = md === 3, s = sym ? 0.25 - p[6] / 127 * 0.25 : p[1] / 127;
+    const bow = sym ? 0 : p[6] / 127 * 0.4, pos = sym ? 0 : p[4] / 127;
+    let b = br + acc / 4 * (1 - br); const d = dm + acc / 4 * (1 - dm);
+    const nl = nlOf(s), f = Math.max(f0, 12 / sr);
+    const per = Math.min(4000, 1 / f);
+    /* the exciter: a burst one period long, minus itself pos / 2 periods later, through the low-pass */
+    const oct = (b * (2 - b) - 0.5) * 6;
+    const eg = Math.tan(Math.PI * Math.min(0.499, f * 4 * Math.pow(2, oct))), ek = bow ? 1 : 1.41;
+    if (this.trig) {
+      this.bk = 0; this.bn = Math.floor(per); this.bd = Math.floor(per * pos / 2);
+      for (let i = 0; i < this.bn; i++) this.burst[i] = this.rnd() * 2 - 1;
+      this.trig = 0;
+    }
+    /* the loop: its low-pass by DAMP and BRIT (12 + 60 d^2 + 24 b semitones over the note) */
+    let dcut = Math.min(84, 12 + 60 * d * d + 24 * b);
+    let df = Math.min(0.499, f * Math.pow(2, dcut / 12));
+    if (d >= 0.95) { const ti = (d - 0.95) * 20; b += ti * (1 - b); df += (0.4999 - df) * ti; }
+    const c = 1 - Math.exp(-TAU * df), lpd = (1 - c) / c;
+    const hw = c / Math.hypot(1 - (1 - c) * Math.cos(TAU * f), (1 - c) * Math.sin(TAU * f));   /* |H| at the note */
+    const loss = d >= 0.95 ? 1 : Math.min(1, 0.9995 / hw) * hw;
+    const lg = loss / hw;                                /* undo some of the filter's loss at the note */
+    const apA = nl > 0 ? -0.7 * nl : 0, apd = apA ? 2 * (1 - apA) / (1 + apA) : 0;
+    const D = Math.max(2, per - lpd - apd);
+    const L = this.str, ap = this.ap, burstA = 0.6 + 0.4 * acc;
+    let last = this.last;
+    /* SYMP: the sympathetic strings */
+    let syD, syG, syB, cin;
+    if (sym) {
+      const semis = sympSemis(p, this.note);
+      const dd = 0.25 + 0.72 * dm, lfd = dd * (2 - dd), rt = 0.07 * Math.pow(2, 8 * lfd);
+      let bb = br * (2 - br); bb = bb * (2 - bb); syB = 0.5 + bb / 2;
+      syD = []; syG = [];
+      for (let k = 0; k < 3; k++) {
+        let fk = 440 * Math.pow(2, (semis[k] - 69) / 12);
+        while (sr / fk > 2000) fk *= 2;                  /* a string longer than the line sounds higher */
+        syD.push(sr / fk - (1 - syB)); syG.push(Math.pow(10, -3 / (rt * fk)));
+      }
+      cin = p[4] / 127 / 16;
+      this.syR = semis.map(x => Math.pow(2, (x - this.note) / 12));
+    }
+    for (let j = 0; j < n; j++) {
+      let x = 0;
+      if (this.bk < this.bn) {
+        const k = this.bk++;
+        x = (this.burst[k] - (this.bd && k >= this.bd ? this.burst[k - this.bd] : 0)) * burstA;
+      }
+      if (bow) x += this.dust(br, d, acc, bow, true);
+      const e = svfLP(this.ex, x, eg, ek);
+      let dl = D;
+      if (nl < 0) dl = D * (1 - Math.min(0.45, nl * nl * 0.6 * Math.min(1, Math.abs(last) * 3)));   /* the curved bridge */
+      let y = L.read(dl);
+      this.lp += c * (y - this.lp); y = this.lp * lg;
+      if (apA) for (let a = 0; a < 2; a++) {             /* dispersion: two all-passes in the loop */
+        const v = -apA * y + ap[a * 2] + apA * ap[a * 2 + 1]; ap[a * 2] = y; ap[a * 2 + 1] = v; y = v;
+      }
+      L.write(y + e); last = y;
+      let out = y;
+      if (sym) {
+        const xin = y * cin; this.dcy = xin - this.dcx + 0.995 * this.dcy; this.dcx = xin;
+        for (let k = 0; k < 3; k++) {
+          const Y = this.sy[k], r = Y.read(syD[k]), v = (syB * r + (1 - syB) * this.syx[k]) * syG[k];
+          this.syx[k] = r; Y.write(v + this.dcy); out += r * 4;
+          this.syE[k] += (r * r - this.syE[k]) * 0.0005;
+        }
+      }
+      this.mainE += (y * y - this.mainE) * 0.0005;
+      o[j] = out + e * p[7] / 127;
+    }
+    this.last = last; this.D = D;
+  }
+  /* one period of the string behind the write head, 64 points */
+  snap() {
+    const L = this.str, D = this.D || 100, a = new Float32Array(64);
+    for (let j = 0; j < 64; j++) a[j] = L.read(1 + D * j / 64);
+    return a;
+  }
+}
+`;
+const WORKLET = DSP + `
+class PH extends AudioWorkletProcessor {
+  constructor() {
+    super(); this.v = new PhysVoice(sampleRate); this.cnt = 0;
+    this.port.onmessage = m => { const d = m.data, v = this.v;
+      if (d.p) { v.p = d.p; v.adsr = d.adsr; }
+      if (d.gate === true) v.noteOn(d.note);
+      else if (d.gate === false) v.noteOff(); };
+  }
+  process(_, outs) {
+    const o = outs[0][0], v = this.v;
+    v.render(o, o.length);
+    for (let c = 1; c < outs[0].length; c++) outs[0][c].set(o);
+    if ((this.cnt += o.length) >= 768) {
+      this.cnt = 0;
+      this.port.postMessage({ lvl: v.e.lvl, md: v.md, ma: Array.from(v.ma), r: v.ratios || [], nm: v.nm || 0,
+        line: v.md === 1 || v.md === 3 ? v.snap() : null, syE: v.syE.slice(), syR: v.syR || [1, 1, 1], mainE: v.mainE,
+        benv: v.benv, strikes: v.strikes, dusts: v.dusts });
+      v.strikes = 0; v.dusts = 0;
+    }
+    return true;
+  }
+}
+registerProcessor("ph", PH);`;
+
+let ac = null, node = null, an = null, mute = null, soundOn = true;
+const wl = { at: -1e9, d: null };
+async function ensureAudio() {
+  if (ac) { if (ac.state !== "running") await ac.resume(); return; }
+  ac = new AudioContext();
+  if (!ac.audioWorklet) { console.warn("no AudioWorklet (open over http://localhost): drawings only"); return; }
+  await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+  node = new AudioWorkletNode(ac, "ph", { outputChannelCount: [2] });
+  an = ac.createAnalyser(); an.fftSize = 1024;
+  mute = ac.createGain(); mute.gain.value = soundOn ? 1 : 0;
+  node.connect(an); an.connect(mute).connect(ac.destination);
+  node.port.onmessage = m => {
+    const d = m.data; d.strikes += wl.d ? wl.d.strikes : 0; d.dusts += wl.d ? wl.d.dusts : 0;   /* keep what no frame took yet */
+    wl.d = d; wl.at = performance.now();
+  };
+  sync();
+}
+function sync() { if (node) node.port.postMessage({ p: P.slice(), adsr: ADSR }); }
+
+/* ================= notes ================= */
+const env = { lvl: 0, stage: 0 };     /* the page's own copy, for when there is no worklet */
+let curNote = 48, noteFlag = false, latched = false, autoT = null;
+const playBtn = document.getElementById("play");
+function noteOn(nt) {
+  curNote = nt; env.stage = 1; noteFlag = true; playBtn.classList.add("held");
+  ensureAudio().then(() => node && node.port.postMessage({ gate: true, note: nt }));
+}
+function noteOff() {
+  if (env.stage) env.stage = 3; playBtn.classList.remove("held");
+  if (node) node.port.postMessage({ gate: false });
+}
+const baseNote = () => +document.getElementById("note").value;
+playBtn.addEventListener("pointerdown", e => { e.preventDefault(); if (latched && env.stage && env.stage !== 3) noteOff(); else noteOn(baseNote()); });
+playBtn.addEventListener("pointerup", () => { if (!latched) noteOff(); });
+playBtn.addEventListener("pointerleave", () => { if (!latched && playBtn.classList.contains("held")) noteOff(); });
+addEventListener("pointerup", () => { const a = document.activeElement; if (a && a.tagName === "BUTTON") a.blur(); });   /* Space plays, never re-clicks */
+const KEYS = "awsedftgyhujk";
+let keyHeld = null;
+addEventListener("keydown", e => {
+  if (e.repeat || e.target.tagName === "SELECT" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.code === "Space") { e.preventDefault(); if (latched && env.stage && env.stage !== 3) noteOff(); else noteOn(baseNote()); return; }
+  const i = KEYS.indexOf(e.key.toLowerCase());
+  if (i >= 0) { keyHeld = e.key.toLowerCase(); noteOn(baseNote() + i); }
+});
+addEventListener("keyup", e => {
+  if (e.code === "Space" && !latched) noteOff();
+  if (e.key.toLowerCase() === keyHeld && !latched) { keyHeld = null; noteOff(); }
+});
+document.getElementById("latch").onclick = e => {
+  latched = !latched; e.target.classList.toggle("on", latched); if (!latched) noteOff();
+};
+document.getElementById("auto").onclick = e => {
+  if (autoT) { clearTimeout(autoT); autoT = null; noteOff(); e.target.classList.remove("on"); return; }
+  e.target.classList.add("on");
+  const step = () => {
+    noteOn(baseNote() + [0, 0, 3, 5, 7, 10, 12, -5][(Math.random() * 8) | 0]);
+    const on = 200 + Math.random() * 900;
+    autoT = setTimeout(() => { noteOff(); autoT = setTimeout(step, 200 + Math.random() * 900); }, on);
+  };
+  step();
+};
+document.getElementById("sound").onclick = e => {
+  soundOn = !soundOn; e.target.classList.toggle("on", soundOn); e.target.textContent = soundOn ? "SOUND ON" : "SOUND OFF";
+  if (mute) mute.gain.value = soundOn ? 1 : 0;
+};
+const noteSel = document.getElementById("note");
+[["C2", 36], ["G2", 43], ["C3", 48], ["G3", 55], ["C4", 60], ["G4", 67], ["C5", 72]].forEach(([n, m]) =>
+  noteSel.insertAdjacentHTML("beforeend", `<option value="${m}" ${m === 60 ? "selected" : ""}>${n}</option>`));
+
+/* ================= helpers ================= */
+const W = 240, H = 140;
+const C = { bg: "#141414", text: "#E4DCC8", mid: "#8a8578", dim: "#4a4740" };
+const ACC = ["#FBE8A6", "#F3BA5A", "#F79B7A", "#EB5560"];
+let pal = "mrc";
+const K = i => pal === "mrc" ? ACC[i & 3] : C.text;    /* knob k's accent (k % 4), or THEME in the other palettes */
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, t) => a + (b - a) * t;
+let g = null;   /* the card being drawn */
+function setA(a) { g.globalAlpha = clamp(a, 0, 1); }
+function poly(pts, col, a, w = 1, close = false) {
+  if (a <= 0.01 || pts.length < 4) return;
+  setA(a); g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]);
+  if (close) g.closePath();
+  g.stroke();
+}
+function line(x0, y0, x1, y1, col, a, w = 1) { poly([x0, y0, x1, y1], col, a, w); }
+function dotted(x0, y0, x1, y1, col, a, step = 3) {
+  const n = Math.max(1, Math.round(Math.hypot(x1 - x0, y1 - y0) / step));
+  setA(a); g.fillStyle = col;
+  for (let i = 0; i <= n; i++) g.fillRect(Math.round(lerp(x0, x1, i / n)), Math.round(lerp(y0, y1, i / n)), 1, 1);
+}
+function disc(x, y, r, col, a) { if (a <= 0.01) return; setA(a); g.fillStyle = col; g.beginPath(); g.arc(x, y, r, 0, 2 * Math.PI); g.fill(); }
+function ring(x, y, r, col, a, w = 1) { if (a <= 0.01) return; setA(a); g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.arc(x, y, r, 0, 2 * Math.PI); g.stroke(); }
+function ell(x, y, rx, ry, col, a, w = 1, a0 = 0, a1 = 2 * Math.PI) {
+  if (a <= 0.01) return; setA(a); g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.ellipse(x, y, rx, ry, 0, a0, a1); g.stroke();
+}
+function ellFill(x, y, rx, ry, col, a) { if (a <= 0.01) return; setA(a); g.fillStyle = col; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 2 * Math.PI); g.fill(); }
+function label(t, x, y, col, a, align = "left") { setA(a); g.fillStyle = col; g.font = "8px ui-monospace,Consolas,monospace"; g.textAlign = align; g.fillText(t, x, y); }
+function spark(x, y, r, col, a) { line(x - r, y, x + r, y, col, a); line(x, y - r, x, y + r, col, a); }
+/* J_m(x), the Bessel integral (the membrane's shapes; tabled once per mode) */
+function besselJ(m, x) { let s = 0; const N = 48; for (let i = 0; i < N; i++) { const t = (i + 0.5) / N * Math.PI; s += Math.cos(m * t - x * Math.sin(t)); } return s / N; }
+const JR = 16, JTAB = MEMB_J.map((j, i) => { const a = []; for (let k = 0; k <= JR; k++) a.push(besselJ(MEMB_M[i], j * k / JR)); return a; });
+const jAt = (i, r) => { if (i >= JTAB.length) return 0; const u = clamp(r, 0, 1) * JR, k = Math.min(JR - 1, Math.floor(u)); return lerp(JTAB[i][k], JTAB[i][k + 1], u - k); };
+
+/* ================= the shared state, a frame ================= */
+const S = {
+  t: 0, dt: 0, lvl: 0, aud: 0, md: 0, ma: new Float32Array(12), r: [], nm: 0, pk: 1e-9, line: new Float32Array(64), lpk: 1e-9,
+  syE: [0, 0, 0], syR: [1, 1, 1], spk: 1e-9, mainE: 0, mpk: 1e-9, benv: 0, strike: false, sinceStrike: 9, dusts: 0,
+  ph: new Float64Array(12), buf: new Float32Array(1024),
+};
+function updateS(dt, now) {
+  S.dt = dt; S.t += dt;
+  envStep(env, dt, ADSR);
+  const live = node && now - wl.at < 250, d = live ? wl.d : null;
+  S.md = P[0]; S.acc = P[5] / 127; S.note = curNote;
+  S.strike = noteFlag; noteFlag = false;
+  if (d) { S.strike = S.strike || d.strikes > 0; S.dusts = d.dusts; d.strikes = 0; d.dusts = 0; } else S.dusts = 0;
+  if (S.strike) { S.sinceStrike = 0; S.pk = S.lpk = S.spk = S.mpk = 1e-9; } else S.sinceStrike += dt;
+  S.lvl = d ? d.lvl : env.lvl;
+  const f0 = 440 * Math.pow(2, (curNote - 69) / 12) / 48000;
+  /* the modes: from the voice when it sounds, else the knobs' (silent) */
+  if (S.md === 0 || S.md === 2) {
+    const M = modeSet(S.md, P, f0, S.acc);
+    S.r = d && d.md === S.md && d.nm ? d.r : M.r; S.nm = S.r.length; S.q = M.q; S.a0 = M.a;
+    S.r = S.r.map(x => x / (S.r[0] || 1));               /* over the lowest mode (STRC's stiffness lowers it under the note) */
+    const k = Math.exp(-dt / 2.5);
+    let mx = 0;
+    for (let i = 0; i < 12; i++) { const v = d && d.md === S.md ? d.ma[i] : 0; mx = Math.max(mx, v); }
+    S.pk = Math.max(S.pk * k, mx);
+    for (let i = 0; i < 12; i++) S.ma[i] = d && d.md === S.md ? clamp(d.ma[i] / S.pk, 0, 1) * Math.min(1, S.lvl * 1.5) : 0;
+  } else S.ma.fill(0);
+  if (d && d.line && d.md === S.md) {
+    let mx = 0; for (const v of d.line) mx = Math.max(mx, Math.abs(v));
+    S.lpk = Math.max(S.lpk * Math.exp(-dt / 2), mx);
+    for (let j = 0; j < 64; j++) S.line[j] = d.line[j] / S.lpk * Math.min(1, S.lvl * 1.5) * Math.min(1, mx / (S.lpk * 0.02 + 1e-12));
+  } else for (let j = 0; j < 64; j++) S.line[j] *= Math.exp(-dt * 6);
+  if (d && d.md === 3) {
+    S.mpk = Math.max(S.mpk * Math.exp(-dt / 3), d.mainE); S.spk = Math.max(S.spk * Math.exp(-dt / 4), ...d.syE);
+    S.mainE = Math.sqrt(d.mainE / S.mpk) * S.lvl; S.syE = d.syE.map(v => Math.sqrt(v / S.spk) * Math.min(1, S.lvl * 2));
+  } else { S.mainE *= Math.exp(-dt * 4); S.syE = S.syE.map(v => v * Math.exp(-dt * 4)); }
+  S.syR = sympSemis(P, curNote).map(x => Math.pow(2, (x - curNote) / 12));
+  S.benv = d ? d.benv : 0;
+  if (an) {
+    an.getFloatTimeDomainData(S.buf);
+    let s = 0; for (let i = 0; i < 1024; i += 4) s += S.buf[i] * S.buf[i];
+    const a = clamp(Math.sqrt(s / 256) * 5, 0, 1);
+    S.aud += (a - S.aud) * (a > S.aud ? 0.6 : 0.15);
+  }
+  /* a slowed clock for the shapes: 1.2 Hz a partial ratio at C4, the note's octave a third faster */
+  S.vf = 1.2 * Math.pow(2, (curNote - 60) / 36);
+  for (let i = 0; i < 12; i++) S.ph[i] += dt * 2 * Math.PI * S.vf * (S.r[i] || i + 1) * (1 + (S.md === 2 ? S.benv * P[6] / 127 : 0));
+}
+
+/* ================= MODAL ================= */
+/* 1 · GLASSES: a glass harp, a wine glass a mode (the first six), as full as its pitch is low: STRC fills them
+ * in even steps, bunched or spread. A note tings each glass at POS's height, as hard as the strike reaches its
+ * mode; the water shivers with its mode and throws drops while it rings loud; BOW runs a wet finger round a rim. */
+function GLASSES() {
+  const drops = [];
+  return { draw(S) {
+    const n = Math.min(6, Math.max(1, S.nm)), sp = 36, x0 = 120 - sp * (n - 1) / 2, base = 130;
+    const bh = 46, bw = 13, stem = 20, top = base - stem - bh;
+    const rmax = Math.log2(Math.max(2, S.r[n - 1] || n)), posF = P[4] / 127 * 0.5, br = P[2] / 127;
+    line(6, base + 0.5, 234, base + 0.5, C.mid, 1);
+    let loud = 0; for (let i = 1; i < n; i++) if (S.ma[i] > S.ma[loud]) loud = i;
+    const ting = S.sinceStrike < 0.3 ? 1 - S.sinceStrike / 0.3 : 0;
+    for (let i = 0; i < n; i++) {
+      const cx = x0 + i * sp, r = S.r[i] || i + 1, a = S.ma[i];
+      const fill = clamp(0.86 - Math.log2(r) / rmax * 0.72, 0.12, 0.86);   /* the lowest the fullest */
+      const wy = top + bh * (1 - fill);
+      const bowl = new Path2D(); bowl.moveTo(cx - bw, top);
+      for (let k = 1; k <= 24; k++) { const t = k / 24 * Math.PI; bowl.lineTo(cx - Math.cos(t) * bw, top + Math.sin(t) * bh); }
+      /* the water: STRC's fill, its surface DAMP's, shivering with the mode */
+      g.save(); g.clip(bowl);
+      const surf = [];
+      const hw = bw * Math.sqrt(Math.max(0, 1 - ((wy - top) / bh) ** 2)) - 0.75;
+      for (let k = 0; k <= 16; k++) { const x = cx - hw + k / 16 * hw * 2; surf.push(x, wy + Math.sin((x - cx) * 0.8 - S.ph[i] * 3) * a * 2.5); }
+      setA(0.5 + a * 0.25); g.fillStyle = K(1); g.beginPath(); g.moveTo(surf[0], surf[1]);
+      for (let k = 2; k < surf.length; k += 2) g.lineTo(surf[k], surf[k + 1]);
+      g.lineTo(cx + bw, top + bh + 2); g.lineTo(cx - bw, top + bh + 2); g.closePath(); g.fill();
+      poly(surf, K(3), 0.85 + a * 0.15, 1.5);
+      g.restore();
+      /* the glass, its rim trembling */
+      setA(1); g.strokeStyle = C.text; g.lineWidth = 1.2; g.stroke(bowl);
+      ell(cx, top, bw * (1 + 0.06 * a * Math.sin(S.ph[i] * 4)), 2.5, C.text, 1, 1.2);
+      line(cx, top + bh, cx, base - 2, C.text, 1, 1.2); ell(cx, base - 1.5, 9, 2, C.text, 1, 1.2);
+      /* BRIT: a glint on the bowl */
+      line(cx - bw + 3, top + 7, cx - bw + 4.5, top + 18, K(2), 0.5 + (0.2 + a * 0.3) * br, 1.5);
+      /* POS: where the spoon tings it (the rim .. half way down), as hard as the strike reaches this mode */
+      const ty = top + posF * 2 * bh * 0.8, tw = Math.sqrt(1 - ((ty - top) / bh) ** 2) * bw;
+      line(cx + tw - 1, ty, cx + tw + 2, ty, K(4), 0.9);
+      const st = Math.min(1, Math.abs(S.a0[i] || 0) * 4) * ting * (0.4 + S.acc * 0.6);
+      if (st > 0.02) {
+        for (let k = 0; k < 4; k++) { const an = -0.6 + k * 0.4; line(cx + tw + 3 + Math.cos(an) * 2, ty + Math.sin(an) * 2, cx + tw + 3 + Math.cos(an) * (3 + st * 6), ty + Math.sin(an) * (3 + st * 6), K(4), st, 1); }
+      }
+      /* drops thrown off a loud surface */
+      if (a > 0.5 && Math.random() < a * S.dt * 8) drops.push({ x: cx + (Math.random() - 0.5) * bw, y: wy, vx: (Math.random() - 0.5) * 20, vy: -30 - a * 30, floor: wy });
+      /* BOW: a wet finger round the loudest glass's rim */
+      if (P[6] && S.lvl > 0.01 && i === loud) {
+        const an = S.t * 4, fx = cx + Math.cos(an) * bw, fy = top + Math.sin(an) * 2.5;
+        line(fx, fy - 2, fx + 8, fy - 22, C.mid, Math.min(1, S.lvl * 2), 3); disc(fx, fy - 1, 2.5, K(6), Math.min(1, S.lvl * 2));
+      }
+    }
+    for (let k = drops.length - 1; k >= 0; k--) {
+      const d = drops[k]; d.vy += 160 * S.dt; d.x += d.vx * S.dt; d.y += d.vy * S.dt;
+      if (d.y > d.floor && d.vy > 0) { drops.splice(k, 1); continue; }
+      disc(d.x, d.y, 0.9, K(3), 0.9);
+    }
+  } };
+}
+
+/* 2 · BELL: a bell in its belfry, its profile STRC's (a squat bowl compressed, a tulip harmonic, a tall flared tube
+ * inharmonic). A note swings it (ACC) and its clapper strikes it at POS (the lip .. the shoulder); the lip trembles
+ * with the modes, a hum of arcs under its mouth a mode each (BRIT), rings travel out as far as DAMP lets them;
+ * BOW draws a bow across the lip. */
+function BELL() {
+  let th = 0, om = 0, side = 1; const waves = [];
+  return { draw(S) {
+    const hx = 120, hy = 18, s = P[1] / 127, dm = P[3] / 127;
+    /* the belfry */
+    line(56, 12, 184, 12, C.mid, 1, 2); line(62, 12, 62, 138, C.dim, 1, 1.5); line(178, 12, 178, 138, C.dim, 1, 1.5);
+    line(56, 138, 184, 138, C.dim, 1);
+    /* the swing: ACC kicks it at a note, DAMP lets it swing on */
+    if (S.strike) { side = -side; om += side * (0.5 + S.acc * 1.3); }
+    om += (-9 * th - (0.3 + (1 - dm) * 1.6) * om) * S.dt; th = clamp(th + om * S.dt, -0.45, 0.45);
+    /* the profile */
+    const Hb = lerp(46, 74, s), p = lerp(0.7, 4, s), w0 = lerp(15, 8, s), w1 = lerp(22, 28, s);
+    let v = 0; for (let i = 0; i < S.nm; i++) v += S.ma[i] * Math.cos(S.ph[i] * 2) * (i & 1 ? -1 : 1) / Math.sqrt(i + 1);
+    v = clamp(v, -1.5, 1.5);
+    const wAt = u => (w0 + w1 * Math.pow(u, p)) * (1 + u * u * 0.07 * v);
+    const ct = Math.cos(th), sn = Math.sin(th), oy = hy + 6;
+    const T = (x, y) => [hx + x * ct - y * sn, oy + x * sn + y * ct];
+    const L = [], R = [];
+    for (let k = 0; k <= 20; k++) { const u = k / 20; L.push(...T(-wAt(u), u * Hb)); R.push(...T(wAt(u), u * Hb)); }
+    /* the crown and the yoke */
+    const [ax, ay] = T(-w0, 0), [bx, by] = T(w0, 0), [kx, ky] = T(0, -5);
+    setA(1); g.strokeStyle = K(1); g.lineWidth = 1.5; g.beginPath(); g.moveTo(ax, ay); g.quadraticCurveTo(kx, ky - 4, bx, by); g.stroke();
+    line(hx, 12, hx + sn * -2, hy + 2, C.mid, 1, 2);
+    poly(L, K(1), 1, 1.5); poly(R, K(1), 1, 1.5);
+    for (const u of [0.22, 0.8]) { const [x0, y0] = T(-wAt(u), u * Hb), [x1, y1] = T(wAt(u), u * Hb); line(x0, y0, x1, y1, K(1), 0.45); }
+    /* the lip, an ellipse seen a little from below */
+    const [lx, ly] = T(0, Hb), lw = wAt(1);
+    setA(1); g.strokeStyle = K(1); g.lineWidth = 1.5; g.beginPath(); g.ellipse(lx, ly, lw, 3.5 + Math.abs(v) * 0.6, th, 0, 2 * Math.PI); g.stroke();
+    /* BRIT: the hum under the mouth, an arc a mode */
+    for (let i = 0; i < Math.min(8, S.nm); i++) {
+      const a = S.ma[i] * (0.3 + P[2] / 127 * 0.7); if (a < 0.03) continue;
+      const rr = lw * 0.5 + i * 3 + Math.sin(S.ph[i]) * 0.8;
+      setA(a); g.strokeStyle = K(2); g.lineWidth = 1; g.beginPath(); g.ellipse(lx, ly + 3 + i * 2.2, rr, 2 + i * 0.4, th, 0.15, Math.PI - 0.15); g.stroke();
+    }
+    /* the clapper: hanging inside, out to the wall at POS at a note */
+    const posF = P[4] / 127 * 0.5, us = 1 - posF * 1.3, cl = Hb * us;
+    const hit = S.sinceStrike < 0.25 ? Math.exp(-S.sinceStrike * 14) : 0;
+    const wall = Math.atan2(wAt(us) - 3, cl) * side * hit;
+    const [cx0, cy0] = T(0, 2), [cbx, cby] = T(Math.sin(wall - th * 0.6) * cl, Math.cos(wall - th * 0.6) * cl);
+    line(cx0, cy0, cbx, cby, C.mid, 1, 1); disc(cbx, cby, 3, K(4), 1);
+    if (hit > 0.3) { if (P[7]) disc(cbx, cby, 4 + P[7] / 127 * 7, K(7), hit * P[7] / 127 * 0.7);
+      for (let k = 0; k < 4; k++) { const an = k * Math.PI / 2 + 0.6; line(cbx + Math.cos(an) * 4, cby + Math.sin(an) * 4, cbx + Math.cos(an) * (5 + hit * 5), cby + Math.sin(an) * (5 + hit * 5), K(4), hit); } }
+    /* DAMP: rings travelling out either side, as far as it lets them */
+    if (S.strike) waves.push({ r: lw, a: 0.4 + S.acc * 0.6 });
+    const life = 30 + dm * 90;
+    for (let k = waves.length - 1; k >= 0; k--) {
+      const w = waves[k]; w.r += S.dt * 45; const a = w.a * (1 - (w.r - lw) / life);
+      if (a <= 0) { waves.splice(k, 1); continue; }
+      ell(lx, ly - Hb * 0.4, w.r, w.r * 0.9, K(3), a, 1, Math.PI * 0.82, Math.PI * 1.18);
+      ell(lx, ly - Hb * 0.4, w.r, w.r * 0.9, K(3), a, 1, -Math.PI * 0.18, Math.PI * 0.18);
+    }
+    /* BOW: a bow drawn across the lip */
+    if (P[6] && S.lvl > 0.01) { const o = Math.sin(S.t * 2.2) * 10, a = Math.min(1, S.lvl * 2);
+      line(lx + lw - 30 + o, ly + 10, lx + lw + 26 + o, ly - 6, K(6), a, 2); line(lx + lw - 30 + o, ly + 13, lx + lw + 26 + o, ly - 3, K(6), a * 0.5, 1); }
+  } };
+}
+
+/* ================= STRNG ================= */
+/* PLUCK: the string from the nut to the bridge, its shape the delay line itself (one period, the wave
+ * running round the loop). STRC winds it (dispersion: a stiff, wound string) or curves the bridge it buzzes
+ * on; POS is where the pick sits; DAMP a felt pressing the string at the nut, lifted away at 127. */
+function PLUCK() {
+  let pick = 0;
+  return { draw(S) {
+    const x0 = 22, x1 = 222, y0 = 70, L = x1 - x0, A = 34;
+    const s = P[1] / 127, nl = nlOf(s), pos = P[4] / 127;
+    /* the nut and the bridge */
+    line(x0, y0 - 14, x0, y0 + 14, C.mid, 1, 2);
+    if (nl < 0) {                                        /* the curved bridge: an arc the string lies on */
+      const c = -nl; setA(1); g.strokeStyle = K(1); g.lineWidth = 1.5; g.beginPath();
+      g.moveTo(x1 - 10 - c * 14, y0 + 2); g.quadraticCurveTo(x1 - 2, y0 + 2 - c * 0.5, x1 + 2, y0 + 14); g.stroke();
+    } else line(x1, y0 - 10, x1, y0 + 14, C.mid, 1, 2);
+    /* the string */
+    const pts = [];
+    for (let k = 0; k <= 64; k++) {
+      const u = k / 64, w = Math.min(1, Math.min(u, 1 - u) * 10);
+      const v = S.line[k % 64] * w;
+      pts.push(x0 + u * L, y0 + v * A);
+    }
+    poly(pts, C.text, 1, 1.5);
+    /* STRC above 0.26: the winding, closer as it stiffens */
+    if (nl > 0) { const st = Math.max(3, 9 - nl * 6);
+      for (let x = x0 + 4; x < x1 - 2; x += st) { const k = (x - x0) / L * 64, v = S.line[Math.floor(k) % 64] * Math.min(1, Math.min(k, 64 - k) / 6.4) * A;
+        line(x - 1, y0 + v + 2, x + 1, y0 + v - 2, K(1), 0.85); } }
+    /* BRIT: glints where the wave is sharp */
+    const br = P[2] / 127;
+    for (let k = 2; k < 62; k++) { const c = Math.abs(S.line[k - 1] - 2 * S.line[k] + S.line[k + 1]);
+      if (c * br * 8 > 0.5) disc(x0 + k / 64 * L, y0 + S.line[k] * A * Math.min(1, Math.min(k, 64 - k) / 6.4), 1.2, K(2), clamp(c * br * 6, 0, 1)); }
+    /* the curved bridge buzzes: sparks where the string touches it */
+    if (nl < 0 && Math.abs(S.line[60]) > 0.15) for (let k = 0; k < 3; k++) spark(x1 - 6 - Math.random() * 10, y0 - 2 + Math.random() * 6, 1.5, K(1), -nl);
+    /* DAMP: the felt at the nut, lifted off as DAMP rings on */
+    const dm = P[3] / 127, lift = dm * 18, fh = 8;
+    setA(0.85); g.fillStyle = K(3); g.fillRect(x0 + 4, y0 - fh - 1 - lift, 7, fh); g.fillRect(x0 + 4, y0 + 2 + lift, 7, fh);
+    /* POS: the pick (0: none, the plain burst), pulled by ACC and through at the note */
+    if (S.strike) pick = 1;
+    pick = Math.max(0, pick - S.dt * 5);
+    const px = x0 + clamp(pos / 2, 0.03, 0.5) * L, py = y0 - 8 - (pick > 0.6 ? (1 - pick) * 2.5 : pick) * 14 * (0.4 + S.acc * 0.6);
+    setA(pos ? 1 : 0.45); g.fillStyle = K(4); g.beginPath(); g.moveTo(px - 4, py - 7); g.lineTo(px + 4, py - 7); g.lineTo(px, py); g.closePath(); g.fill();
+    if (P[7] && pick > 0.4) disc(px, y0, 3 + P[7] / 127 * 7, K(7), (pick - 0.4) * P[7] / 127);
+    /* BOW: the hair across the string while it sounds */
+    if (P[6] && S.lvl > 0.01) { const bx = x0 + L * 0.82 + Math.sin(S.t * 2) * 6; line(bx - 6, y0 - 24, bx + 6, y0 + 24, K(6), Math.min(1, S.lvl * 2), 2); }
+    label(N_note(S.note), 8, 134, C.mid, 0.8);
+  } };
+}
+const N_note = n => ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][n % 12] + (Math.floor(n / 12) - 1);
+
+/* ================= MEMB ================= */
+/* 1 · TRAMPOLINE: the head is a trampoline and someone jumps on it. A note launches them (ACC how high: all the way,
+ * a somersault) from where POS puts them, the centre to the rim; they bounce back while the head rings (DAMP keeps
+ * them going), the mat dipping under them, deeper with BEND; ripples a mode round their feet (BRIT); DAMP's springs round the frame. */
+function TRAMP() {
+  let y = 0, vy = 0, air = false, spin = 0, flip = false;
+  return { draw(S) {
+    const cx = 120, my = 104, rx = 86, ry = 13, pos = P[4] / 127, harm = P[1] / 127, dm = P[3] / 127;
+    const jx = cx + pos * (rx - 18), sag = S.benv * P[6] / 127;
+    const e = Math.max(...S.ma) * S.lvl;
+    if (S.strike) { vy = 130 + S.acc * 125; air = true; y = Math.max(y, 0.1); if (S.acc >= 0.7 && !flip) { flip = true; spin = 0; } }   /* ACC from 70 %: a somersault (one under way carries on) */
+    if (air) {
+      const gr = 540 * (S.lvl < 0.01 ? 3 : 1);   /* silent: down three times as fast */
+      vy -= gr * S.dt; y += vy * S.dt;
+      if (y >= 120 && vy > 0) { y = 120; vy = 0; }   /* at most 120 px up: the head out of the panel */
+      if (flip) { const t = (vy + Math.sqrt(vy * vy + 2 * gr * Math.max(y, 0))) / gr;   /* the rest of the turn over the time left */
+        spin += t > S.dt ? (1 - spin) * S.dt / t : 1 - spin; }
+      if (y <= 0) flip = false;   /* the turn done: they land on their feet */
+      if (y <= 0) { y = 0; const reb = (0.3 + 0.5 * dm) * Math.min(1, e * 2 + 0.2);
+        if (-vy * reb > 28 && e > 0.03) { vy = -vy * reb; } else { air = false; vy = 0; } }
+    }
+    const kick = S.sinceStrike < 0.12 ? (1 - S.sinceStrike / 0.12) * (0.4 + S.acc * 0.6) : 0;
+    const depth = (air ? Math.max(0, 1 - y / 8) * 4 : 3) + sag * 10 + kick * 6;
+    const zAt = x => { const u = (x - cx) / rx, r = Math.abs(u), th = u < 0 ? -Math.PI / 2 : Math.PI / 2;
+      let z = 0; for (let i = 0; i < Math.min(S.nm, 10); i++) z += S.ma[i] * jAt(i, r) * Math.cos(MEMB_M[i] * th) * Math.cos(S.ph[i]);
+      return z * 4 * (1 - r * r) + depth * Math.exp(-(((x - jx) / 24) ** 2)); };
+    /* legs and frame */
+    for (const s of [-1, 1]) { line(cx + s * rx * 0.82, my + 6, cx + s * rx * 0.86, 138, C.mid, 1, 1.5); line(cx + s * rx * 0.45, my + 12, cx + s * rx * 0.48, 138, C.mid, 1, 1.5); }
+    ell(cx, my, rx, ry, C.text, 1, 2);
+    /* DAMP: the springs, tauter as it rings longer */
+    for (let k = 0; k < 18; k++) { const an = k / 18 * 2 * Math.PI, x = cx + Math.cos(an) * rx, yy = my + Math.sin(an) * ry, xi = cx + Math.cos(an) * (rx - 8), yi = my + Math.sin(an) * (ry - 3);
+      const zz = 1.5 - dm, pts = [];
+      for (let j = 0; j <= 4; j++) { const t = j / 4; pts.push(lerp(x, xi, t) + (j % 2 ? zz : -zz) * Math.sin(an), lerp(yy, yi, t) + (j % 2 ? zz : -zz) * 0.5); }
+      poly(pts, K(3), 1, 1); }
+    /* the mat's front edge, dipping */
+    const mat = [];
+    for (let k = 0; k <= 40; k++) { const an = k / 40 * Math.PI, x = cx + Math.cos(an) * (rx - 7); mat.push(x, my + Math.sin(an) * (ry - 3) + zAt(x) * 0.6); }
+    poly(mat, C.text, 1, 1.5);
+    /* BRIT: ripples round the feet, a mode each */
+    for (let i = 0; i < Math.min(6, S.nm); i++) { const a = 0.35 + 0.65 * S.ma[i] * S.lvl * (0.5 + P[2] / 127 * 0.5); if (S.ma[i] * S.lvl < 0.04) continue;
+      ell(jx, my + 1, 8 + i * 6 + Math.sin(S.ph[i]) * 1.5, 1.5 + i * 0.9, K(2), a, 1); }
+    /* the jumper */
+    const fy = my + 1 + zAt(jx) - y, rise = air ? clamp(vy / 150, -1, 1) : -1;
+    const bend = air ? 0 : 1, rot = air && flip ? spin * 2 * Math.PI : 0;
+    const hip = [0, -11 + bend * 3], neck = [0, -23 + bend * 3];
+    const R = ([x, yy]) => [jx + x * Math.cos(rot) - (yy - hip[1]) * Math.sin(rot), fy + hip[1] + x * Math.sin(rot) + (yy - hip[1]) * Math.cos(rot)];
+    const tuck = air ? Math.max(0, rise) * 4 : 0;
+    const kneeL = [-3 - bend * 2, -5 + bend - tuck], kneeR = [3 + bend * 2, -5 + bend - tuck];
+    const footL = [-2, -tuck * 1.5], footR = [2, -tuck * 1.5];
+    const armUp = air ? 1 - (rise + 1) / 2 * 0.3 : 0.2;
+    const handL = [-7, -23 + 3 - armUp * 10], handR = [7, -23 + 3 - armUp * 10];
+    const seg = (a, b) => { const [x0, y0] = R(a), [x1, y1] = R(b); line(x0, y0, x1, y1, K(1), 1, 1.5); };   /* the jumper in accent 2 */
+    seg(footL, kneeL); seg(kneeL, hip); seg(footR, kneeR); seg(kneeR, hip); seg(hip, neck);
+    seg([0, neck[1] + 2], handL); seg([0, neck[1] + 2], handR);
+    const [hx, hy] = R([0, neck[1] - 4]); ring(hx, hy, 3.5, K(1), 1, 1.5);
+    /* the launch: ACC's push, EXC's flash under the feet */
+    if (kick) { for (let k = 0; k < 5; k++) { const an = Math.PI * (1.1 + k * 0.2); line(jx + Math.cos(an) * 5, fy + 2 + Math.sin(an) * 3, jx + Math.cos(an) * (7 + kick * 7), fy + 2 + Math.sin(an) * (4 + kick * 5), K(5), kick); }
+      if (P[7]) ellFill(jx, fy + 2, 6 + P[7] / 127 * 10, 2 + P[7] / 127 * 3, K(7), kick * P[7] / 127 * 0.6); }
+    /* POS: a mark on the frame where they land */
+    line(jx, my + ry + 3, jx, my + ry + 7, K(4), 1, 1.5);
+  } };
+}
+
+/* 2 · DROPLET: the head is a pond in its hoop; a note drops a drop into it at POS (the centre to the rim). It splashes
+ * (ACC: how many, how high), and rings spread from where it fell, one a (slowed) period while it sounds: BEND's falling
+ * pitch spreads them apart, DAMP how far they travel, BRIT how bright. HARM a lily pad in the middle, bobbing with the
+ * round modes. */
+function DROPLET() {
+  const rings = [], splash = []; let ph = 0, fall = -1;
+  return { draw(S) {
+    const cx = 120, cy = 82, rx = 106, ry = 44, pos = P[4] / 127, harm = P[1] / 127;
+    const ix = cx + pos * rx * 0.82, iy = cy + pos * 6;
+    /* the hoop */
+    ell(cx, cy + 6, rx, ry, C.dim, 1, 1.5, 0, Math.PI); line(cx - rx, cy, cx - rx, cy + 6, C.dim, 1, 1.5); line(cx + rx, cy, cx + rx, cy + 6, C.dim, 1, 1.5);
+    ell(cx, cy, rx, ry, C.text, 1, 1.5);
+    /* the drop */
+    if (S.strike) fall = 0;
+    if (fall >= 0) {
+      fall += S.dt; const t = fall / 0.06;
+      if (t < 1) { const dy = lerp(-4, iy, t * t); setA(1); g.fillStyle = K(5); g.beginPath(); g.moveTo(ix, dy - 6);
+        g.quadraticCurveTo(ix + 3, dy, ix, dy + 2); g.quadraticCurveTo(ix - 3, dy, ix, dy - 6); g.fill(); }
+      else { fall = -1; ph = 0; rings.push({ r: 1, a: 1 });
+        for (let k = 0; k < 4 + S.acc * 10; k++) { const an = Math.random() * 2 * Math.PI, sp = 10 + Math.random() * 20;
+          splash.push({ x: ix, y: iy, z: 0, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp * 0.4, vz: 40 + S.acc * 60 * Math.random() + 20 }); } }
+    }
+    /* the rings, a slowed period apart while it rings; the bend's higher pitch packs the first ones in */
+    const e = Math.max(...S.ma) * S.lvl;
+    ph += S.dt * (2.2 + (S.note - 48) / 24) * Math.pow(2, S.benv * P[6] / 127 * 1.5);
+    if (ph >= 1) { ph -= 1; if (e > 0.04 && fall < 0) rings.push({ r: 1, a: Math.min(1, e * 1.3) }); }
+    const life = 25 + P[3] / 127 * 110, br = 0.35 + P[2] / 127 * 0.65;
+    g.save(); g.beginPath(); g.ellipse(cx, cy, rx - 2, ry - 1, 0, 0, 2 * Math.PI); g.clip();
+    for (let k = rings.length - 1; k >= 0; k--) {
+      const w = rings[k]; w.r += S.dt * 48; const a = w.a * (1 - w.r / life) * br;
+      if (a <= 0) { rings.splice(k, 1); continue; }
+      ell(ix, iy, w.r, w.r * ry / rx, K(2), a, 1);
+    }
+    g.restore();
+    /* HARM: the lily pad, bobbing with the round modes (m = 0) */
+    if (harm > 0.02) {
+      let b = 0; for (let i = 0; i < Math.min(S.nm, 10); i++) if (!MEMB_M[i]) b += S.ma[i] * Math.cos(S.ph[i]);
+      const pr = 5 + harm * 22, py = cy - b * 2;
+      setA(0.9); g.fillStyle = "#000"; g.beginPath(); g.moveTo(cx, py); g.ellipse(cx, py, pr, pr * 0.4, 0, 1.45, 1.45 + 2 * Math.PI - 0.22); g.closePath(); g.fill();
+      setA(1); g.strokeStyle = K(1); g.lineWidth = 1.5; g.stroke();
+      for (let k = 0; k < 7; k++) { const an = 1.45 + 0.4 + k * 0.82; line(cx, py, cx + Math.cos(an) * pr * 0.8, py + Math.sin(an) * pr * 0.32, K(1), 0.45); }
+    }
+    /* the splash */
+    for (let k = splash.length - 1; k >= 0; k--) {
+      const d = splash[k]; d.vz -= 220 * S.dt; d.x += d.vx * S.dt; d.y += d.vy * S.dt; d.z += d.vz * S.dt;
+      if (d.z < 0) { splash.splice(k, 1); continue; }
+      disc(d.x, d.y - d.z, 1, K(5), 1);
+    }
+    /* POS, EXC: where it falls, its flash */
+    spark(ix, iy, 2, K(4), 0.9);
+    if (P[7] && S.sinceStrike < 0.3 && fall < 0) ellFill(ix, iy, 6 + P[7] / 127 * 12, 3 + P[7] / 127 * 5, K(7), (1 - S.sinceStrike / 0.3) * P[7] / 127 * 0.6);
+  } };
+}
+
+/* ================= SYMP ================= */
+/* ORBITS: the played string against each sympathetic one as a Lissajous figure (x the note, y the sympathetic
+ * string at its ratio, CHRD's): a fifth draws 3:2, an octave 2:1; the strings' 6 cents of detune turn the figures
+ * slowly over. Their size is the two strings' swing (SYMP fills them in); BUZZ creases them; DAMP leaves a trail. */
+function ORBITS() {
+  const trail = [[], [], []]; let ph = [0, 0, 0], acc = 0;
+  return { draw(S) {
+    const cxs = [42, 120, 198], cy = 62, R = 34, buzz = P[6] / 127, c = P[1] >> 4;
+    const keep = 1 + Math.round(P[3] / 127 * 6);
+    acc += S.dt;
+    for (let k = 0; k < 3; k++) {
+      const r = S.syR[k], cx = cxs[k];
+      /* the drift: how far the ratio is from its nearest small fraction, plus the detune, slowed */
+      let best = 1e9; for (let q = 1; q <= 4; q++) { const pp = Math.round(r * q); best = Math.min(best, Math.abs(r * q - pp) / q); }
+      ph[k] += S.dt * (0.12 + best * 3) * (k === 1 ? -1 : 1);
+      const ex = 0.25 + 0.75 * clamp(S.mainE, 0, 1), ey = 0.2 + 0.8 * clamp(S.syE[k], 0, 1), live = S.lvl > 0.01;
+      const pts = [];
+      for (let j = 0; j <= 160; j++) {
+        const u = j / 160 * 2 * Math.PI * 2;
+        let x = Math.sin(u + ph[k] * 0.3); x = x - buzz * 0.35 * Math.sign(x) * Math.max(0, Math.abs(x) - 0.6) * 2.5;   /* the bridge clips its swing */
+        const y = Math.sin(u * r + ph[k]);
+        pts.push(cx + x * R * (live ? ex : 0.8), cy + y * R * (live ? ey : 0.8));
+      }
+      if (acc > 0.12 && live) { trail[k].unshift(pts); if (trail[k].length > 6) trail[k].pop(); }
+      for (let t = Math.min(keep, trail[k].length) - 1; t >= 1; t--) poly(trail[k][t], K(3), (1 - t / keep) * 0.6 * S.lvl, 1);
+      poly(pts, C.text, live ? 1 : 0.8, 1.5);
+      /* SYMP: a dot running the figure, as bright as the coupling */
+      const j = Math.floor((S.t * 30 * (1 + k * 0.2)) % 160), sy = P[4] / 127;
+      disc(pts[j * 2], pts[j * 2 + 1], 1.5 + sy * 2, K(4), 0.3 + sy * 0.7);
+      /* CHRD: the interval under it */
+      const cents = c < 7 ? CHORDS[c][k] : [0, 700, 1200][k] + (48 - S.note) * 100;
+      label((cents >= 0 ? "+" : "") + Math.round(cents / 100), cx, 128, K(1), 0.95, "center");
+      line(cx - R, 116, cx + R, 116, C.mid, 1);
+      line(cx - R + (R * 2) * clamp(S.syE[k], 0, 1), 114, cx - R + (R * 2) * clamp(S.syE[k], 0, 1), 118, K(2), 1);
+    }
+    if (acc > 0.12) acc = 0;
+  } };
+}
+
+/* ================= the drawings, per model ================= */
+const VIS = {
+  MODAL: [
+    { name: "GLASSES", make: GLASSES, keys: [
+      ["STRC", "the water in each glass: a glass a mode, the lowest the fullest"],
+      ["BRIT", "the glint on the glasses"],
+      ["DAMP", "the water's surface, shivering (and throwing drops) as long as its mode rings"],
+      ["POS", "where the spoon tings them (the rim .. half way down); the tings as hard as the strike reaches each mode"],
+      ["ACC", "how hard the tings"],
+      ["BOW", "a wet finger round the loudest glass's rim"],
+      ] },
+    { name: "BELL", make: BELL, keys: [
+      ["STRC", "the bell's profile: a squat bowl, a tulip, a tall flared tube"],
+      ["BRIT", "the hum under its mouth, an arc a mode"],
+      ["DAMP", "how far the rings travel out; how long it swings"],
+      ["POS", "where the clapper strikes: the lip .. the shoulder"],
+      ["ACC", "how hard a note swings it"],
+      ["BOW", "a bow across the lip"],
+      ["EXC", "the clapper's flash"]] },
+  ],
+  STRNG: [
+    { name: "PLUCK", make: PLUCK, picked: true, keys: [
+      ["STRC", "below 0.25 the curved bridge it buzzes on; above, the winding of a stiff string"],
+      ["BRIT", "glints where the wave is sharp"],
+      ["DAMP", "the felt at the nut, lifting off as it rings longer"],
+      ["POS", "the pick (0: none, the plain burst)"],
+      ["ACC", "how far the pick pulls"],
+      ["BOW", "the bow's hair across the string"],
+      ["EXC", "the pick's flash"]] },
+  ],
+  MEMB: [
+    { name: "TRAMPOLINE", make: TRAMP, keys: [
+      ["BRIT", "the ripples round their feet, a mode each"],
+      ["DAMP", "the springs; how long they keep bouncing"],
+      ["POS", "where they jump: the centre .. the rim"],
+      ["ACC", "how high a note throws them (from 70 %: a somersault)"],
+      ["BEND", "the mat sags deeper under them"],
+      ["EXC", "the flash under their feet"]] },
+    { name: "DROPLET", make: DROPLET, keys: [
+      ["HARM", "the lily pad, bobbing with the round modes"],
+      ["BRIT", "the rings' brightness"],
+      ["DAMP", "how far the rings travel"],
+      ["POS", "where the drop falls: the centre .. the rim"],
+      ["ACC", "the splash"],
+      ["BEND", "the falling pitch: the first rings packed in, then further apart"],
+      ["EXC", "the flash where it lands"]] },
+  ],
+  SYMP: [
+    { name: "ORBITS", make: ORBITS, picked: true, keys: [
+      ["CHRD", "each figure's ratio: 2:1, 3:2 ... turning slowly with the 6 cents of detune"],
+      ["BRIT", "the meters under them: each string's swing"],
+      ["DAMP", "the trail they leave"],
+      ["SYMP", "the dot running each figure"],
+      ["BUZZ", "creases the figures' sides: the bridge clipping the swing"]] },
+  ],
+};
+const KNOB_I = { MODEL: 0, STRC: 1, HARM: 1, CHRD: 1, BRIT: 2, DAMP: 3, POS: 4, SYMP: 4, ACC: 5, BOW: 6, BEND: 6, BUZZ: 6, EXC: 7 };
+
+/* ================= cards ================= */
+let view = "MODAL", cards = [];
+function buildCards() {
+  const host = document.getElementById("cards"); host.innerHTML = ""; cards = [];
+  const list = view === "ALL" ? MODELS.flatMap(m => VIS[m].map((v, i) => [m, i, v])) : VIS[view].map((v, i) => [view, i, v]);
+  for (const [m, i, v] of list) {
+    const el = document.createElement("div"); el.className = "card";
+    el.innerHTML = `<h2>${m} ${i + 1} · <b>${v.name}</b>${v.picked ? " · <span style=\"color:var(--a1)\">PICKED</span>" : ""}</h2><div class="screen"><canvas width="240" height="140"></canvas></div>
+      <ul>${v.keys.map(([k, t]) => `<li><b style="color:${pal === "mrc" ? ACC[KNOB_I[k] & 3] : C.text}">${k}</b> ${t}</li>`).join("")}</ul>`;
+    host.appendChild(el);
+    cards.push({ g: el.querySelector("canvas").getContext("2d"), vis: v.make(), m });
+  }
+}
+
+/* ================= knobs ================= */
+const ui = [];
+function knobLabel(i) {
+  const m = P[0];
+  if (m === 2 && i === 1) return "HARM";
+  if (m === 2 && i === 6) return "BEND";
+  if (m === 3 && i === 1) return "CHRD";
+  if (m === 3 && i === 4) return "SYMP";
+  if (m === 3 && i === 6) return "BUZZ";
+  return ["MODEL", "STRC", "BRIT", "DAMP", "POS", "ACC", "BOW", "EXC"][i];
+}
+function knobText(i) {
+  const v = P[i];
+  if (i === 0) return MODELS[v];
+  if (i === 1 && P[0] === 3) return CHORD_N[v >> 4];
+  if (i === 6 && P[0] === 2) return (v * 12 / 127).toFixed(1) + "st";
+  return Math.round(v * 100 / 127) + "%";
+}
+for (let i = 0; i < 8; i++) {
+  const el = document.createElement("div"); el.className = "k";
+  el.innerHTML = i === 0 ? `<b></b><select>${MODELS.map((m, j) => `<option value="${j}">${m}</option>`).join("")}</select><span></span>`
+                         : `<b></b><input type="range" min="0" max="127" value="${P[i]}"><span></span>`;
+  const inp = el.querySelector("input,select"), lab = el.querySelector("b"), out = el.querySelector("span");
+  inp.addEventListener("input", () => { P[i] = +inp.value; if (i === 0 && view !== "ALL") setMode(MODELS[P[0]], false); refresh(); sync(); });
+  ui.push({ inp, lab, out });
+  document.getElementById(i < 4 ? "p1" : "p2").appendChild(el);
+}
+function refresh() {
+  ui.forEach((u, i) => {
+    u.lab.textContent = knobLabel(i); u.lab.style.color = pal === "mrc" ? ACC[i & 3] : C.text;
+    u.out.textContent = knobText(i); if (+u.inp.value !== P[i]) u.inp.value = P[i];
+  });
+  [...document.getElementById("modes").children].forEach(b => b.classList.toggle("on", b.dataset.v === view));
+}
+function setMode(m, setParam = true) {
+  view = m;
+  if (setParam && m !== "ALL") { P[0] = MODELS.indexOf(m); sync(); }
+  buildCards(); refresh();
+}
+const modesEl = document.getElementById("modes");
+[...MODELS, "ALL"].forEach(m => {
+  const b = document.createElement("button"); b.textContent = m === "ALL" ? "ALL 6" : m; b.dataset.v = m;
+  b.onclick = () => setMode(m); modesEl.appendChild(b);
+});
+const preEl = document.getElementById("presets");
+Object.entries(PRESETS).forEach(([n, v]) => {
+  const b = document.createElement("button"); b.textContent = n;
+  b.onclick = () => {
+    P.splice(0, 8, ...v.p); ADSR = v.adsr.slice();
+    [...preEl.children].forEach(c => c.classList.toggle("on", c === b));
+    if (view !== "ALL") setMode(MODELS[P[0]], false); else refresh();
+    sync();
+  };
+  preEl.appendChild(b);
+});
+document.getElementById("zoom").onchange = e => document.documentElement.style.setProperty("--cw", 240 * +e.target.value + "px");
+document.getElementById("pal").onchange = e => { pal = e.target.value; buildCards(); refresh(); };
+setMode("MODAL");
+preEl.children[0].classList.add("on");
+
+/* ================= the loop ================= */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  updateS(dt, now);
+  for (const c of cards) {
+    g = c.g; g.globalAlpha = 1; g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+    if (view === "ALL" && MODELS[P[0]] !== c.m) {          /* (ALL: the other models' drawings sit still, dimmed) */
+      const save = S.md; c.vis.draw(Object.assign({}, S, { ma: new Float32Array(12), line: new Float32Array(64), lvl: 0, strike: false, sinceStrike: 9, syE: [0, 0, 0], mainE: 0, dusts: 0 }));
+      g.globalAlpha = 0.55; g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+    } else c.vis.draw(S);
+    g.globalAlpha = 1;
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
