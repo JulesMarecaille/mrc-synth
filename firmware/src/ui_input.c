@@ -714,7 +714,7 @@ static void grid_keys(uint32_t pressed)
  * cards show those four while a step is held, a locked value bright, the sound's own DIM). The step held: on the
  * DRUM grid its white keys (several at once: each gets the lock; a press on a hit takes it away only when let go,
  * and not at all when it was held for a lock), on the roll the step being entered (its note keys held). [EDIT]
- * tapped meanwhile clears the held steps' locks (EDIT alone still clears the step, its locks with it). Not while a
+ * tapped meanwhile clears the held steps' locks (MRC: EDIT alone opens the EDIT page, no step clear). Not while a
  * song plays (STOP TO EDIT). A lock is a motion record (motion.c): AUTOMATION's PLAY plays it, CLEAR clears it */
 static uint64_t lock_held(void)
 {
@@ -1311,17 +1311,11 @@ static int page_tap(uint32_t b)
             sd_reset();
         return 1;
     }
-    if (b == B_EDIT && song.seq_mode && !ui.home && cur_page()->graph == GR_ROLL) {   /* STEP: EDIT clears the step */
-        uint64_t held = lock_held();
+    if (b == B_EDIT && song.seq_mode && !ui.home && cur_page()->graph == GR_ROLL && lock_held()) {
+        /* STEP, a step held: its locks go (the step stays). MRC: EDIT alone no longer clears the cursor step
+         * (too easy to lose a step by reaching for the EDIT page): it opens EDIT, as on any page */
         if (chain_busy()) { ui_message("STOP TO EDIT"); return 1; }
-        if (held) {                                     /* a step held: its locks (the step stays) */
-            lock_clear(held);
-            return 1;
-        }
-        step_clear(&TSEL->step[ui.cursor]);
-        (void)motion_clear_locks(TSEL, ui.cursor);
-        cursor_set(ui.cursor + 1);
-        ui_message("STEP CLEARED");
+        lock_clear(lock_held());
         return 1;
     }
     if (b == B_EDIT && !ui.home && (cur_page()->graph == GR_USER || cur_page()->graph == GR_PSAVE)) {

@@ -36,7 +36,21 @@ if pkg.exists():
     shutil.copy(pkg, fw / name)
     meta.update(product=product, pkg="../firmware/" + name)
     note = f"{name}, {len(raw)} B, {product}"
+    # the package holds JieLi SDK files (Apache-2.0): their licence travels next to it, with ours (as make_site.py)
+    names = sorted(f.name for f in (ROOT / "LICENSES").glob("*.txt"))
+    (fw / "LICENSES").mkdir()
+    for n in names:
+        shutil.copy(ROOT / "LICENSES" / n, fw / "LICENSES" / n)
+    (fw / "LICENSES" / "index.html").write_text(    # the installer links this folder: Pages lists no folders
+        '<!doctype html><meta charset="utf-8"><title>MRC Synth licences</title><h1>Licence texts</h1><ul>'
+        + "".join(f'<li><a href="{n}">{n}</a></li>' for n in names)
+        + '</ul><p><a href="../LICENSING.md">LICENSING.md</a> · <a href="../LICENSE">LICENSE (GPL-3.0)</a></p>\n',
+        encoding="utf-8")
+    for doc in ("LICENSE", "LICENSING.md"):
+        shutil.copy(ROOT / doc, fw / doc)
 out = emu / "installer"
 out.mkdir(parents=True, exist_ok=True)
+# index_pkg.html links the licences for make_site.py's webapp/installer/; here the installer is one level down
+html = html.replace('href="../../firmware/', 'href="../firmware/')
 (out / "index.html").write_text(html.replace("/*LIB*/", lib).replace("/*META*/", json.dumps(meta)), encoding="utf-8")
 print(f"emu: build/emu/installer ({note})")

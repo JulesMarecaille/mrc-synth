@@ -651,7 +651,8 @@ static int lock_ui(void)
         motion_lock_count(t) == 1u && motion_lock_steps(0) == 1u);
     cursor_set(0);
     press(B_EDIT);
-    bad += check("  [EDIT] alone clears the step and its locks", !t->step[0].n && !motion_lock_count(t));
+    bad += check("  [EDIT] alone (MRC): the step and its locks stay", t->step[0].n == 1u && motion_lock_count(t) == 1u);
+    motion_clear_locks(t, 0);
     song.playing = 1; chain.running = 1;
     lk_down(kn); turn(EN_K3, 1); lk_up(kn);
     bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t));

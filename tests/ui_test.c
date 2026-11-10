@@ -1148,8 +1148,9 @@ static int test_grid(void)
     ok &= t->step[2].hit == 1u << DV_CLAP && t->step[2].acc == 1u << DV_CLAP;
     bad += check("KNOB 1 STEP, 2 LANE, 3 HIT on / off, 4 ACC (an accent adds the hit)", ok);
     press(B_EDIT);
-    bad += check("EDIT: the cursor step cleared, on to the next", t->step[2].time == ST_REST && !t->step[2].hit && ui.cursor == 3u &&
-                 grid_on());
+    bad += check("EDIT (MRC): the cursor step stays, the EDIT page opens", t->step[2].hit == 1u << DV_CLAP && ui.cursor == 2u &&
+                 !grid_on());
+    go_page(GR_ROLL); t->step[2].hit = 0; t->step[2].acc = 0; t->step[2].time = ST_REST; ui.cursor = 3u;
     /* pages: LEN 32, the page keys */
     t->p[P_SLEN] = 32;
     leds = grid_leds();
@@ -3188,7 +3189,7 @@ static int test_layer(void)
     btn_down(B_EDIT); frame();
     ok = step_on(&TSEL->step[0]) && ui.cursor == 0;
     btn_up(B_EDIT); frame();
-    bad += check("EDIT on STEP clears the step when let go (not on press)", ok && !step_on(&TSEL->step[0]) && ui.cursor == 1);
+    bad += check("EDIT on STEP (MRC): the step stays; let go, the EDIT page", ok && step_on(&TSEL->step[0]) && cur_page()->graph != GR_ROLL);
     ui_power_on(); hold(B_HOME);
     ok = ui.menu == 1; hold(B_HOME); ok &= !ui.menu;
     go_home(); hold(B_SEQ); ok &= ui.home && !ui.layer;
@@ -6958,7 +6959,7 @@ static int test_layer_lock(void)
     ok &= ui.lock == LAYER_FX;
     stop_transport();
     bad += check("  another button between the taps: no lock; PLAY in a locked layer plays, the lock stays", ok);
-    {   /* EDIT on STEP clears a step: two quick taps clear two (no lock) */
+    {   /* EDIT on STEP (MRC: no step clear): two quick taps leave the steps alone */
         track_t *t;
         ui_power_on();
         t = TSEL;
@@ -6966,8 +6967,8 @@ static int test_layer_lock(void)
         go_page(GR_ROLL); frame();
         ui.cursor = 0;
         press(B_EDIT); press(B_EDIT); frames(100);
-        bad += check("  EDIT on STEP (it clears the step): two quick taps clear two steps, no lock",
-                     !ui.lock && !ui.layer && ui.cursor == 2u && t->step[0].time == ST_REST);
+        bad += check("  EDIT on STEP (MRC): two quick taps clear no step",
+                     step_on(&t->step[0]) && step_on(&t->step[3]));
     }
     return bad;
 }

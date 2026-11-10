@@ -3,3 +3,4 @@ build/
 __pycache__/
 *.fwsc
 CLAUDE.md
+!docs/firmware/*.fwsc

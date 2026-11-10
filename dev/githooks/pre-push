@@ -1,0 +1,17 @@
+#!/bin/sh
+# MRC: no push of main whose site (docs/, built by the pre-commit hook) is older than the sources it is built from:
+# a commit made with --no-verify / MRC_NO_BUILD=1 after the last site build. Fix: commit once more with the hook
+# on (git commit --allow-empty -m "Site"), or push anyway with git push --no-verify.
+SRC="firmware web tools assets dev/build-emu.sh dev/installer_preview.py LICENSES LICENSE LICENSING.md"
+z=0000000000000000000000000000000000000000
+while read -r lref lsha rref rsha; do
+    [ "$rref" = refs/heads/main ] && [ "$lsha" != "$z" ] || continue
+    site=$(git log -1 --format=%ct "$lsha" -- docs/firmware docs/felucca.wasm docs/index.html)
+    # shellcheck disable=SC2086
+    src=$(git log -1 --format=%ct "$lsha" -- $SRC)
+    if [ -z "$site" ] || [ "${src:-0}" -gt "$site" ]; then
+        echo "pre-push: docs/ (the site) is older than the sources on $lsha; commit once with the hook on to rebuild it"
+        exit 1
+    fi
+done
+exit 0

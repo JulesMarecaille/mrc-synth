@@ -1,0 +1,11 @@
+#!/bin/sh
+# MRC: every commit builds the firmware (the device package) and the site, and commits the site with it (docs/,
+# GitHub Pages serves main:/docs). Enabled once per clone: git config core.hooksPath dev/githooks
+# Skip it for one commit: MRC_NO_BUILD=1 git commit ..  (or git commit --no-verify); the pre-push hook then
+# refuses to push a site older than the sources.
+[ "${MRC_NO_BUILD:-0}" = 1 ] && exit 0
+cd "$(git rev-parse --show-toplevel)" || exit 1
+echo "pre-commit: building the firmware and the site (MRC_NO_BUILD=1 skips)"
+sh dev/build-site.sh || { echo "pre-commit: the build failed; nothing committed"; exit 1; }
+git add -A -f -- docs/index.html docs/felucca.wasm docs/worklet.js docs/editor docs/installer docs/firmware \
+    docs/fonts docs/.nojekyll

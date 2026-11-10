@@ -679,7 +679,7 @@ INFO advertises `4C 01 1` after the ratchet tag (`52 01 4`). Firmware without it
   page shown last before (HOME's four, ENV, LFO, FX, EDIT 1 / 2, ..; the cards show them while a step is held). On
   the DRUM grid a step is its white key (several held: each gets the lock; a key pressed on a hit takes it away
   only when let go without a knob turned); on the piano roll the step being entered (its note keys held). [EDIT]
-  tapped with a step held clears its locks; EDIT alone clears the step and its locks. The roll and the grid mark
+  tapped with a step held clears its locks; EDIT alone opens the EDIT page (MRC: it no longer clears the step). The roll and the grid mark
   the steps that hold a lock; AUTOMATION shows the count (LOCK).
 
 ## 1.2: LFO 2, NUDGE, 128 records (FUN10)
