@@ -85,7 +85,6 @@
 <header class="bar">
   <a class="brand" href="../" title="MRC Synth"><span class="bands" aria-hidden="true"><i></i><i></i><i></i><i></i></span>MRC <small>synth</small></a>
   <span class="crumb">Installer</span>
-  <button class="lang" id="lang"></button>
 </header>
 <main>
   <h1>Install <em>MRC Synth</em></h1>
@@ -852,16 +851,14 @@ const TEXT = {
     nopkg: "This build has no firmware package. Run the device build (dev/device-build.sh) first.",
   },
 };
-let lang = (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en";
+let lang = "en";   /* MRC: English only, the language button is gone */
 const t = (k) => TEXT[lang][k];
 let lastKey = null, lastArg = "";
 function applyLang() {
   document.documentElement.lang = lang;
   document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t(e.dataset.t); });
-  $("lang").textContent = t("other");
   if (lastKey) $("status").textContent = t(lastKey) + lastArg;
 }
-$("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
 applyLang();
 const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; };
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };

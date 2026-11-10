@@ -10,7 +10,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MRC Synth</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%223%22 fill=%22%23141414%22/%3E%3Crect x=%223%22 y=%223.5%22 width=%2210%22 height=%222%22 fill=%22%23FBE8A6%22/%3E%3Crect x=%223%22 y=%226%22 width=%2210%22 height=%222%22 fill=%22%23F3BA5A%22/%3E%3Crect x=%223%22 y=%228.5%22 width=%2210%22 height=%222%22 fill=%22%23F79B7A%22/%3E%3Crect x=%223%22 y=%2211%22 width=%2210%22 height=%222%22 fill=%22%23EB5560%22/%3E%3C/svg%3E">
-<meta name="description" content="MRC Synth, custom firmware for the FM-1, running in your browser: the same code the instrument runs. Thirteen engines, four tracks, one cow.">
+<meta name="description" content="MRC Synth: custom firmware for the FM-1. Based on Felucca, streamlined with fun visuals.">
 <meta name="theme-color" content="#0e0e0e">
 <style>
 /* DotGothic16 (SIL OFL 1.1, fonts/OFL.txt), cut to printable ASCII, for the knob labels and the small print */
@@ -90,12 +90,12 @@ html:not(.fk) .ic { visibility: hidden; }
 .logo { position: relative; width: fit-content; }
 .word { display: flex; font: 200 clamp(120px, 22vw, 272px)/.8 var(--sans); letter-spacing: -.055em; color: var(--theme); margin: 0; }
 .word span { display: inline-block; }
-.synth { font: 300 clamp(28px, 4.6vw, 54px)/1 var(--sans); color: var(--text); margin: 14px 0 0 .06em; letter-spacing: .02em; }
+/* "synth" centred under MRC, as on the boot screen (ui_draw.c: HALF_UP(240 - text_w)) */
+.synth { font: 300 clamp(28px, 4.6vw, 54px)/1 var(--sans); color: var(--text); margin: 14px 0 0; letter-spacing: .02em; text-align: center; }
 .hero { padding-bottom: 0; }
 /* the four bands as on the boot screen (ui_draw.c BOOT_BAND_H 9, _GAP 5): the whole width, stacked, square-ended */
 .bands { position: relative; display: grid; gap: clamp(6px, .8vw, 10px); margin-top: clamp(48px, 8vw, 96px); }
 .bands i { display: block; height: clamp(11px, 1.45vw, 18px); }
-.hero + .wrap .stats { border-top: 0; }
 .bands i:nth-child(1) { background: var(--a1); } .bands i:nth-child(2) { background: var(--a2); }
 .bands i:nth-child(3) { background: var(--a3); } .bands i:nth-child(4) { background: var(--a4); }
 /* the boot animation, CSS alone (it plays on load, nothing to wait for; the resting state is the end state): MRC drops
@@ -120,13 +120,6 @@ html:not(.fk) .ic { visibility: hidden; }
 .pitch p.lede span { color: var(--dim); }
 .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
 .ver { margin-top: 22px; font: 13px var(--dot); color: var(--faint); letter-spacing: .08em; }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.stats div { padding: 22px 0 22px 20px; border-left: 1px solid var(--line); }
-.stats div:first-child { border-left: 0; padding-left: 0; }
-.stats b { display: block; font: 200 clamp(32px, 4vw, 48px)/1 var(--sans); letter-spacing: -.03em; color: var(--theme); }
-.stats span { font: 13px var(--dot); color: var(--dim); letter-spacing: .1em; text-transform: uppercase; }
-@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } .stats div:nth-child(3) { border-left: 0; padding-left: 0; }
-  .stats div:nth-child(n+3) { border-top: 1px solid var(--line); } }
 
 /* ------------------------------------------------------------------ sections */
 section.block { padding: clamp(72px, 10vw, 128px) 0 0; }
@@ -210,24 +203,27 @@ kbd { font: 12px/1 var(--dot); padding: 4px 6px 3px; border-radius: 6px; color: 
 .editor-card li .ic { font-size: 18px; width: 22px; color: var(--a2); }
 .editor-card li:nth-child(4n+2) .ic { color: var(--a3); } .editor-card li:nth-child(4n+3) .ic { color: var(--a4); } .editor-card li:nth-child(4n+4) .ic { color: var(--a1); }
 .editor-card .note { font: 13px var(--dot); color: var(--faint); letter-spacing: .06em; }
-/* a sketch of the editor, drawn rather than shot: tabs, a step grid in the four block accents, four mixer strips */
+/* the editor's picture: the GRAIN screen, a saucer beaming up a cow */
 .mock { position: relative; padding: clamp(24px, 4vw, 48px); background: radial-gradient(80% 70% at 70% 30%, rgba(243, 186, 90, .07), transparent 70%); border-left: 1px solid var(--line); }
 @media (max-width: 900px) { .mock { border-left: 0; border-top: 1px solid var(--line); } }
-.win { border-radius: 14px; background: var(--bg); box-shadow: 0 0 0 1px var(--line2) inset, 0 30px 60px -20px rgba(0, 0, 0, .8); overflow: hidden;
-       transform: perspective(1200px) rotateY(-6deg) rotateX(3deg); transition: transform .8s var(--ease); }
-.editor-card:hover .win { transform: perspective(1200px) rotateY(0) rotateX(0); }
-.win .tb { display: flex; gap: 6px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-.win .tb i { width: 8px; height: 8px; border-radius: 50%; background: var(--raise); }
-.win .tb span { margin-left: 8px; font: 11px var(--dot); color: var(--faint); letter-spacing: .08em; }
-.win .tabs { display: flex; gap: 4px; padding: 10px 12px 0; flex-wrap: wrap; }
-.win .tabs b { font: 500 10px/1 var(--sans); color: var(--dim); padding: 6px 9px; border-radius: 99px; letter-spacing: .04em; }
-.win .tabs b.on { background: var(--theme); color: var(--bg); }
-.win .steps { display: grid; grid-template-columns: repeat(16, 1fr); gap: 3px; padding: 14px 12px 4px; }
-.win .steps i { aspect-ratio: 1 / 1.6; border-radius: 3px; background: var(--raise); }
-.win .steps i.on { background: var(--c); }
-.win .mix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px; }
-.win .mix div { height: 84px; border-radius: 8px; background: var(--surf); position: relative; box-shadow: 0 0 0 1px var(--line) inset; }
-.win .mix div::after { content: ""; position: absolute; left: 50%; width: 4px; margin-left: -2px; bottom: 10px; height: var(--h); border-radius: 4px; background: var(--c); }
+.abduct { display: block; width: 100%; height: auto; border-radius: 18px; background: #0a0a0a; overflow: hidden;
+          box-shadow: 0 0 0 1px var(--line2) inset, 0 30px 60px -20px rgba(0, 0, 0, .8); }
+/* the cow rises from the grass to under the saucer, bobbing, and is gone; the rim lights run; grains drift up the beam */
+.abduct .lift { animation: lift 7s var(--ease) infinite; }
+.abduct .bob { animation: bob 1.6s ease-in-out infinite; }
+.abduct .rim rect { animation: rim 1.2s linear infinite; }
+.abduct .rim rect:nth-child(2) { animation-delay: .24s; } .abduct .rim rect:nth-child(3) { animation-delay: .48s; }
+.abduct .rim rect:nth-child(4) { animation-delay: .72s; } .abduct .rim rect:nth-child(5) { animation-delay: .96s; }
+.abduct .grains circle { animation: grain 2.4s linear infinite both; }
+.abduct .grains circle:nth-child(2) { animation-delay: .5s; } .abduct .grains circle:nth-child(3) { animation-delay: 1s; }
+.abduct .grains circle:nth-child(4) { animation-delay: 1.5s; } .abduct .grains circle:nth-child(5) { animation-delay: 1.9s; }
+.abduct .beam { animation: beam 3s ease-in-out infinite; }
+@keyframes lift { 0%, 8% { transform: none; opacity: 1; } 75% { transform: translateY(-50px); opacity: 1; } 86% { transform: translateY(-56px); opacity: 0; }
+                  90% { transform: none; opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes bob { 50% { transform: translateY(-1.5px); } }
+@keyframes rim { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@keyframes grain { from { transform: none; opacity: 0; } 20% { opacity: 1; } to { transform: translateY(-40px); opacity: 0; } }
+@keyframes beam { 50% { opacity: .75; } }
 
 /* ------------------------------------------------------------------ the installer: three steps in the four accents */
 .install { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-radius: 28px; overflow: hidden;
@@ -258,6 +254,8 @@ footer nav a:hover { color: var(--a2); }
   .anim .word span, .anim .synth, .anim .bands i { animation: none !important; }
   .reveal { opacity: 1; transform: none; transition: none; }
   .power::before { animation: none; }
+  .abduct * { animation: none !important; }
+  .abduct .lift { transform: translateY(-34px); }
 }
 </style>
 </head>
@@ -267,8 +265,8 @@ footer nav a:hover { color: var(--a2); }
     <a class="brand" href="#top" aria-label="MRC Synth"><span class="bands-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>MRC <small>synth</small></a>
     <nav>
       <a class="opt" href="#emulator">Emulator</a>
-      <a class="opt" href="#install">Install</a>
-      <a class="btn primary small" href="editor/">Editor <span class="arrow" aria-hidden="true">→</span></a>
+      <a class="opt" href="editor/">Editor</a>
+      <a class="btn primary small" href="installer/">Install <span class="arrow" aria-hidden="true">→</span></a>
     </nav>
   </div>
 </header>
@@ -283,7 +281,7 @@ footer nav a:hover { color: var(--a2); }
       </div>
     </div>
     <div class="pitch">
-      <p class="lede">Custom firmware for the FM-1. <span>Thirteen engines, four tracks, a sequencer, and a screen full of little drawings that move with the sound. This is the instrument's own code, running in your browser.</span></p>
+      <p class="lede">Custom firmware for the FM-1. <span>Based on Felucca, streamlined with fun visuals.</span></p>
       <div class="ctas">
         <button class="btn primary" type="button" id="hero-on"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg>Switch it on</button>
         <a class="btn ghost" href="editor/">Open the editor <span class="arrow" aria-hidden="true">→</span></a>
@@ -294,22 +292,12 @@ footer nav a:hover { color: var(--a2); }
   <div class="bands" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 </section>
 
-<div class="wrap">
-  <div class="stats reveal">
-    <div><b>13</b><span>engines</span></div>
-    <div><b>4</b><span>tracks</span></div>
-    <div><b>64</b><span>steps a track</span></div>
-    <div><b>1</b><span>cow, beamed up</span></div>
-  </div>
-</div>
-
 <section class="block" id="emulator">
   <div class="wrap">
     <div class="head reveal">
       <div>
         <p class="kicker"><b>01</b> Emulator</p>
         <h2>Play it <em>here.</em></h2>
-        <p class="lede">The panel, the keys, the screen. Click, drag the knobs, or play from your keyboard. What you save stays in this browser.</p>
       </div>
     </div>
     <div class="stage reveal">
@@ -347,12 +335,12 @@ footer nav a:hover { color: var(--a2); }
     <div class="head reveal">
       <div>
         <p class="kicker"><b>02</b> Editor</p>
-        <h2>Every parameter, <em>one screen.</em></h2>
+        <h2>Edit <em>your FM-1</em></h2>
       </div>
     </div>
     <div class="editor-card reveal">
       <div class="copy">
-        <p class="lede">Plug the FM-1 in over USB and edit it from the browser: sounds, FM operators, steps, the mixer, your preset library, samples and backups. Changes go to the instrument as you make them.</p>
+        <p class="lede">Plug the FM-1 in over USB and edit it from the browser: sounds, FM operators, steps, the mixer, your preset library, samples and backups.</p>
         <ul id="edfeatures"></ul>
         <div class="ctas">
           <a class="btn primary" href="editor/">Open the editor <span class="arrow" aria-hidden="true">→</span></a>
@@ -361,15 +349,35 @@ footer nav a:hover { color: var(--a2); }
         <p class="note">CHROME OR EDGE · USB MIDI</p>
       </div>
       <div class="mock" aria-hidden="true">
-        <div class="win">
-          <div class="tb"><i></i><i></i><i></i><span>MRC / EDITOR</span></div>
-          <div class="tabs"><b>SOUND</b><b>6-OP FM</b><b class="on">SEQUENCER</b><b>TRACKS</b><b>LIBRARY</b></div>
-          <div class="steps" id="mocksteps"></div>
-          <div class="mix">
-            <div style="--c: var(--a1); --h: 48px"></div><div style="--c: var(--a2); --h: 30px"></div>
-            <div style="--c: var(--a3); --h: 58px"></div><div style="--c: var(--a4); --h: 38px"></div>
-          </div>
-        </div>
+        <!-- GRAIN's screen (firmware/src/ui_graph.c graph_grain): a saucer beaming up a cow, GN_COW's outline in px -->
+        <svg class="abduct" viewBox="0 0 240 150">
+          <defs><linearGradient id="beamfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3ba5a" stop-opacity=".30"/><stop offset="1" stop-color="#f3ba5a" stop-opacity=".04"/></linearGradient></defs>
+          <g class="stars"><rect x="16" y="12" width="1" height="1" fill="var(--a1)" opacity="0.79"/><rect x="28" y="49" width="1" height="1" fill="var(--a1)" opacity="0.65"/><path d="M235 67.5h3M236.5 66v3" stroke="var(--a1)" stroke-width="1" opacity="0.43"/><rect x="26" y="58" width="1" height="1" fill="var(--a1)" opacity="0.55"/><rect x="65" y="14" width="1" height="1" fill="var(--a1)" opacity="0.63"/><rect x="19" y="108" width="1" height="1" fill="var(--a1)" opacity="0.64"/><path d="M60 83.5h3M61.5 82v3" stroke="var(--a1)" stroke-width="1" opacity="0.68"/><rect x="19" y="76" width="1" height="1" fill="var(--a1)" opacity="0.65"/><rect x="16" y="31" width="1" height="1" fill="var(--a1)" opacity="0.33"/><rect x="223" y="20" width="1" height="1" fill="var(--a1)" opacity="0.47"/><path d="M39 72.5h3M40.5 71v3" stroke="var(--a1)" stroke-width="1" opacity="0.37"/><rect x="212" y="90" width="1" height="1" fill="var(--a1)" opacity="0.41"/><path d="M166 27.5h3M167.5 26v3" stroke="var(--a1)" stroke-width="1" opacity="0.52"/><rect x="20" y="75" width="1" height="1" fill="var(--a1)" opacity="0.34"/><rect x="56" y="66" width="1" height="1" fill="var(--a1)" opacity="0.71"/><path d="M66 104.5h3M67.5 103v3" stroke="var(--a1)" stroke-width="1" opacity="0.41"/><rect x="203" y="34" width="1" height="1" fill="var(--a1)" opacity="0.35"/></g>
+          <g class="beam">
+            <path d="M110 31 L130 31 L162 127 L78 127 Z" fill="url(#beamfill)"/>
+            <path d="M110 31 L78 127 M130 31 L162 127" stroke="var(--a3)" stroke-width="1" opacity=".7"/>
+            <g fill="none" stroke="var(--a1)" stroke-width=".9">
+              <ellipse cx="120" cy="113" rx="37" ry="5.5" opacity=".55"/><ellipse cx="120" cy="99" rx="32" ry="4.8" opacity=".45"/>
+              <ellipse cx="120" cy="85" rx="27.5" ry="4.2" opacity=".35"/><ellipse cx="120" cy="71" rx="23" ry="3.6" opacity=".28"/>
+              <ellipse cx="120" cy="57" rx="18.5" ry="3" opacity=".22"/><ellipse cx="120" cy="43" rx="14" ry="2.4" opacity=".18"/>
+            </g>
+          </g>
+          <ellipse cx="120" cy="128" rx="42" ry="3.5" fill="none" stroke="var(--a3)" stroke-width="1"/>
+          <path d="M24 127l-2 -3M25 127l1 -4M41 127l-2 -3M42 127l1 -4M196 127l-2 -3M197 127l1 -4M214 127l-2 -3M215 127l1 -4" stroke="var(--dim)" stroke-width="1"/>
+          <path d="M6 128.5H76M164 128.5H234" stroke="var(--faint)" stroke-dasharray="1 2"/>
+          <g class="lift"><g class="bob"><g transform="translate(118 126) scale(1.25)" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="1">
+            <path d="M15 -17 L14.5 -14.5 L12.5 -12.5 L10 -12 L-11 -12 L-13.5 -12.5 L-15.5 -14.5 L-16 -17 L-16 -22 L-15.5 -24.5 L-13.5 -26.5 L-11 -27 L10 -27 L12.5 -26.5 L14.5 -24.5 L15 -22 L15 -17 M23 -24 L22.5 -22.5 L21.5 -21.5 L20 -21 L16 -21 L14.5 -21.5 L13.5 -22.5 L13 -24 L13 -28 L13.5 -29.5 L14.5 -30.5 L16 -31 L20 -31 L21.5 -30.5 L22.5 -29.5 L23 -28 L23 -24 M26 -21 L25.5 -20 L25 -19.5 L24 -19 L21 -19 L20 -19.5 L19.5 -20 L19 -21 L19 -23 L19.5 -24 L20 -24.5 L21 -25 L24 -25 L25 -24.5 L25.5 -24 L26 -23 L26 -21 M14 -29 L10 -32 L13 -30 M16 -31 L15 -35 M20 -31 L21 -35 M-13 -12 L-13 0 L-11 0 L-11 -12 M-8 -12 L-8 0 L-6 0 L-6 -12 M6 -12 L6 0 L8 0 L8 -12 M10 -12 L10 0 L12 0 L12 -12 M-16 -24 L-19 -20 L-20 -15 M-21 -15 L-20 -12 L-19 -15 M1 -12 L2 -10 L5 -10 L6 -12" stroke="var(--theme)"/>
+            <path d="M3 -22 L2.5 -20.5 L-0.5 -20.5 L-1 -22 L0 -23.5 L2 -23.5 L3 -22 M-5.5 -18 L-7.5 -15.5 L-10.5 -16.5 L-13.5 -18 L-11 -21 L-7.5 -20.5 L-5.5 -18 M-5.5 -18.5 L-8 -16 L-11 -16 L-14 -18.5 L-11.5 -20.5 L-7 -21.5 L-5.5 -18.5 M3 -27 L3.5 -24.5 L6 -23 L9 -23.5 L10.5 -25 L11 -27 M20 -28 L20.5 -28" stroke="var(--a2)"/>
+          </g></g></g>
+          <g class="grains" fill="var(--a1)"><circle cx="114" cy="84" r="1"/><circle cx="125" cy="74" r="1"/><circle cx="119" cy="62" r="1"/><circle cx="108" cy="96" r="1"/><circle cx="131" cy="92" r="1"/></g>
+          <g fill="#0a0a0a" stroke="var(--dim)" stroke-width="1.2">
+            <path d="M106 22 A14 11 0 0 1 134 22"/>
+            <ellipse cx="120" cy="25" rx="34" ry="6"/>
+            <path d="M109 30 A11 2.5 0 0 0 131 30" fill="none"/>
+          </g>
+          <path d="M86 25H154" stroke="var(--dim)" stroke-width=".8" opacity=".6"/>
+          <g class="rim" fill="var(--theme)"><rect x="93" y="27" width="2" height="1"/><rect x="103" y="28.6" width="2" height="1"/><rect x="115" y="29.4" width="2" height="1"/><rect x="127" y="29" width="2" height="1"/><rect x="139" y="28" width="2" height="1"/></g>
+        </svg>
       </div>
     </div>
   </div>
@@ -418,10 +426,6 @@ footer nav a:hover { color: var(--a2); }
   const FEATURES = [["audio", "Sounds and presets"], ["knob", "6-operator FM"], ["grid", "Step sequencer"], ["slider", "Four-track mixer"],
                     ["books", "Preset library"], ["waves", "Samples"], ["folder", "Projects and backups"], ["cog", "Settings"]];
   document.getElementById("edfeatures").innerHTML = FEATURES.map(([i, t]) => `<li>${ic(i)}${t}</li>`).join("");
-  // the sketch's step grid: each block of four steps in one brand accent, as the DRUM grid on the device
-  const hits = [0, 3, 4, 6, 8, 11, 12, 14, 15];
-  document.getElementById("mocksteps").innerHTML = Array.from({ length: 16 }, (_, i) =>
-    `<i class="${hits.includes(i) ? "on" : ""}" style="--c: var(--a${1 + (i >> 2)})"></i>`).join("");
   // icons only once the face has loaded: a missing font never shows boxes
   document.fonts?.load("1em Fukiai", String.fromCharCode(FK.audio)).then((f) => { if (f.length) document.documentElement.classList.add("fk"); }, () => {});
 

@@ -198,6 +198,10 @@
   #connect { background: var(--fg); color: var(--bg); box-shadow: 0 10px 30px -12px rgba(243, 186, 90, .6); padding: 8px 18px; }
   #connect .ic { color: var(--bg); }
   #connect:hover:not(:disabled) { background: #fff8e8; }
+  .bar a.try { font: 500 13px/1.3 var(--sans); color: var(--fg); text-decoration: none; border-radius: 99px; padding: 8px 18px;
+               box-shadow: 0 0 0 1px var(--line2) inset; transition: box-shadow .2s; }
+  .bar a.try:hover { color: var(--fg); box-shadow: 0 0 0 1px var(--fg) inset; }
+  .bar a.try[hidden] { display: none; }
   #status:not(:empty) { color: var(--a2); margin: 6px 0 2px; }
   select, input[type=text], input[type=number], input[type=search] {
     font: 13px/1.3 var(--sans); color: var(--fg); background: var(--surf); border: 1px solid var(--line2); border-radius: 8px; padding: 4px 8px; }
@@ -292,7 +296,6 @@
   <div class="mrc-bar">
     <a class="brand" href="../" title="MRC Synth"><span class="bands" aria-hidden="true"><i></i><i></i><i></i><i></i></span>MRC <small>synth</small></a>
     <span class="crumb">Editor</span>
-    <button class="lang" id="lang"></button>
   </div>
   <h1>The <em>Editor</em></h1>
   <p class="sub"><a href="../installer/" data-t="installer"></a></p>
@@ -300,6 +303,7 @@
   <header class="top">
     <div class="bar">
       <button id="connect" data-t="connect" data-ic="port_usb_c"></button>
+      <a id="trymock" class="try" href="?mock=1" data-t="tryMock"></a>
       <span id="version" class="dim"></span>
       <span id="live" class="dim"></span>
       <span id="mock" class="dim" hidden data-t="mock"></span>
@@ -2644,7 +2648,7 @@ const TEXT = {
     putDone: "本体に書き込みました: スロット ", storedSlot: "本体に保存しました: スロット ", erasedSlot: "消去しました: スロット ",
     loadedUser: "音色を読み込みました（シーケンスはそのまま。SAVE 長押しで元に戻せます）: ", reloaded: "本体で音色が変わったので読み直しました", readingBank: "スロットを読み込み中",
     badEngine: "このファームウェアにないエンジンです: ", flashFail: "書き込みに失敗しました（rc {rc}）",
-    installer: "Felucca インストーラー",
+    installer: "インストーラー",
     tabSeq: "シーケンサー", tabTracks: "トラック", tabSettings: "設定",
     needDevice: "FM-1 を接続すると編集できます。", smpNone: "このファームウェアにはユーザーサンプルのスロットがありません。",
     bankConnect: "FM-1 を接続すると本体のユーザープリセットも扱えます。", bankNone: "このファームウェアにはユーザープリセットがありません。",
@@ -2697,7 +2701,7 @@ const TEXT = {
     deviceRejected: "The device rejected that setting.",
     devicePending: "Applied. Settings will save when playback stops.",
 
-    other: "日本語", connect: "Connect", disconnect: "Disconnect", mock: "Mock device (no hardware)",
+    other: "日本語", tryMock: "Try without device", connect: "Connect", disconnect: "Disconnect", mock: "Mock device (no hardware)",
     sound: "Sound", engine: "Engine", presets: "Presets", initSound: "Init sound",
     track: "Track",
     saveFile: "Save to file", loadFile: "Load file", projects: "Song & backup",
@@ -2745,7 +2749,7 @@ const TEXT = {
     putDone: "Written to the device: slot ", storedSlot: "Stored on the device: slot ", erasedSlot: "Erased slot ",
     loadedUser: "Sound loaded (the sequence stays; hold SAVE to undo): ", reloaded: "The sound changed on the device: read again", readingBank: "Reading the slots",
     badEngine: "This firmware has no such engine: ", flashFail: "Write failed (rc {rc})",
-    installer: "Felucca installer",
+    installer: "Installer",
     tabSeq: "Sequencer", tabTracks: "Tracks", tabSettings: "Settings",
     needDevice: "Connect the FM-1 to edit.", smpNone: "This firmware has no user sample slots.",
     bankConnect: "Connect the FM-1 to see its user presets too.", bankNone: "This firmware has no user presets.",
@@ -2756,14 +2760,13 @@ const TEXT = {
     smpSlots: "Sample slots", userBank: "User presets", none: "none",
   },
 };
-let lang = (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en";
+let lang = "en";   /* MRC: English only, the language button is gone */
 const t = (k) => TEXT[lang][k] ?? k;
 let lastKey = null, lastArg = "";
 function sayK(k, arg = "") { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; }
 function applyLang() {
   document.documentElement.lang = lang;
   document.querySelectorAll("[data-t]").forEach((e) => setLabel(e, t(e.dataset.t)));
-  $("lang").textContent = t("other");
   setLabel($("connect"), t(dev ? "disconnect" : "connect"));
   if (lastKey) $("status").textContent = t(lastKey) + lastArg;
   $("libq").placeholder = t("libSearch");
@@ -2774,7 +2777,6 @@ function applyLang() {
   renderPanels();
   if (dev) { renderSlots(); renderStepHead(); renderSamples(); renderTrackbar(); renderMixer(); renderSysinfo(); renderFm6(); }
 }
-$("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
 
 /* ---------------------------------------------------------------- tabs --- */
 /* one panel at a time; the last one is remembered (localStorage) and in the URL hash (#sound ...) */
@@ -2842,6 +2844,7 @@ window.addEventListener("hashchange", () => { const h = location.hash.slice(1); 
 const QS = new URLSearchParams(location.search);
 const MOCK = QS.get("mock") === "1";
 $("mock").hidden = !MOCK;
+$("trymock").hidden = MOCK;
 let mock = null;
 
 /* -------------------------------------------------------------- state --- */
