@@ -98,19 +98,20 @@ html:not(.fk) .ic { visibility: hidden; }
 .hero + .wrap .stats { border-top: 0; }
 .bands i:nth-child(1) { background: var(--a1); } .bands i:nth-child(2) { background: var(--a2); }
 .bands i:nth-child(3) { background: var(--a3); } .bands i:nth-child(4) { background: var(--a4); }
-/* the boot animation: MRC drops in a letter at a time, synth closes in, the bands slide in from alternating sides */
-.anim .word span { opacity: 0; transform: translateY(-60%); }
-.anim .synth { opacity: 0; letter-spacing: .9em; }
-.anim .bands i { opacity: 0; }
-.anim .bands i:nth-child(odd) { transform: translateX(-110%); } .anim .bands i:nth-child(even) { transform: translateX(110%); }
-.on .word span { animation: drop .7s cubic-bezier(.3, 1.6, .5, 1) forwards; }
-.on .word span:nth-child(2) { animation-delay: .32s; } .on .word span:nth-child(3) { animation-delay: .64s; }
-.on .synth { transition: opacity 1s .95s, letter-spacing 1.3s .95s var(--ease); opacity: 1; letter-spacing: .02em; }
-/* (.anim.on .bands i:nth-child(n): as specific as the .anim side rules above, and after them, so it wins) */
-.anim.on .bands i:nth-child(n) { transition: transform 1s var(--ease), opacity .4s; opacity: 1; transform: none; }
-.on .bands i:nth-child(1) { transition-delay: 1.35s; } .on .bands i:nth-child(2) { transition-delay: 1.5s; }
-.on .bands i:nth-child(3) { transition-delay: 1.65s; } .on .bands i:nth-child(4) { transition-delay: 1.8s; }
+/* the boot animation, CSS alone (it plays on load, nothing to wait for; the resting state is the end state): MRC drops
+   in a letter at a time, synth closes in, the bands slide in from alternating sides. A click on the wordmark replays it
+   (the script takes .anim off and puts it back). */
+.anim .word span { animation: drop .7s cubic-bezier(.3, 1.6, .5, 1) both; }
+.anim .word span:nth-child(2) { animation-delay: .32s; } .anim .word span:nth-child(3) { animation-delay: .64s; }
+.anim .synth { animation: close-in 1.3s .95s var(--ease) both; }
+.anim .bands i { animation: band-l 1s 1.35s var(--ease) both; }
+.anim .bands i:nth-child(2) { animation-name: band-r; animation-delay: 1.5s; }
+.anim .bands i:nth-child(3) { animation-delay: 1.65s; }
+.anim .bands i:nth-child(4) { animation-name: band-r; animation-delay: 1.8s; }
 @keyframes drop { 0% { opacity: 0; transform: translateY(-60%); } 40% { opacity: 1; } 100% { opacity: 1; transform: none; } }
+@keyframes close-in { from { opacity: 0; letter-spacing: .9em; } }
+@keyframes band-l { from { transform: translateX(-101%); } }
+@keyframes band-r { from { transform: translateX(101%); } }
 .star { position: absolute; width: 14px; height: 14px; pointer-events: none; z-index: 2; }
 .star::before { content: ""; position: absolute; inset: 0; background: currentColor;
   clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%); }
@@ -143,7 +144,7 @@ section.block { padding: clamp(72px, 10vw, 128px) 0 0; }
 @media (orientation: portrait) and (max-width: 700px) { .stage { padding: 8px; border-radius: 22px; } }
 .device { position: relative; width: 100%; aspect-ratio: 1000 / 624; user-select: none; -webkit-user-select: none;
           -webkit-touch-callout: none; touch-action: manipulation; }
-.device svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; filter: drop-shadow(0 24px 40px rgba(0, 0, 0, .6)); }
+.device > svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; filter: drop-shadow(0 24px 40px rgba(0, 0, 0, .6)); }
 .device canvas { position: absolute; background: #000; }
 .hit { position: absolute; touch-action: none; cursor: pointer; -webkit-tap-highlight-color: transparent; border-radius: 10px; }
 .hit.knob { cursor: ns-resize; border-radius: 50%; }
@@ -180,7 +181,7 @@ section.block { padding: clamp(72px, 10vw, 128px) 0 0; }
 .start[hidden] { display: none; }
 .power { position: relative; width: clamp(92px, 13vw, 132px); aspect-ratio: 1; border-radius: 50%; border: 0; cursor: pointer;
          background: var(--theme); color: var(--bg); font: 500 15px/1.1 var(--sans); display: grid; place-content: center; gap: 6px;
-         justify-items: center; box-shadow: 0 1px 0 #fff inset, 0 20px 50px -10px rgba(0, 0, 0, .8); transition: transform .3s var(--ease); }
+         justify-items: center; isolation: isolate; box-shadow: 0 1px 0 #fff inset, 0 20px 50px -10px rgba(0, 0, 0, .8); transition: transform .3s var(--ease); }
 .power::before { content: ""; position: absolute; inset: -9px; border-radius: 50%; z-index: -1;
   background: conic-gradient(var(--a1), var(--a2), var(--a3), var(--a4), var(--a1)); animation: spin 6s linear infinite;
   -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); mask: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); }
@@ -228,6 +229,17 @@ kbd { font: 12px/1 var(--dot); padding: 4px 6px 3px; border-radius: 6px; color: 
 .win .mix div { height: 84px; border-radius: 8px; background: var(--surf); position: relative; box-shadow: 0 0 0 1px var(--line) inset; }
 .win .mix div::after { content: ""; position: absolute; left: 50%; width: 4px; margin-left: -2px; bottom: 10px; height: var(--h); border-radius: 4px; background: var(--c); }
 
+/* ------------------------------------------------------------------ the installer: three steps in the four accents */
+.install { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-radius: 28px; overflow: hidden;
+  background: var(--line); gap: 1px; box-shadow: 0 0 0 1px var(--line) inset, 0 40px 120px -50px rgba(0, 0, 0, .9); }
+@media (max-width: 860px) { .install { grid-template-columns: 1fr; } }
+.install .step { background: linear-gradient(170deg, #1b1b1a, #141414 70%); padding: clamp(24px, 3.5vw, 40px); position: relative; }
+.install .step b { display: block; font: 200 56px/1 var(--sans); letter-spacing: -.04em; color: var(--c); margin-bottom: 18px; }
+.install .step h3 { margin: 0 0 6px; font: 500 17px/1.3 var(--sans); color: var(--theme); }
+.install .step p { margin: 0; color: var(--dim); font-size: 14px; }
+.install-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-top: 28px; }
+.install-cta .note { font: 13px var(--dot); color: var(--faint); letter-spacing: .06em; }
+
 /* ------------------------------------------------------------------ footer */
 footer { margin-top: clamp(80px, 10vw, 140px); border-top: 1px solid var(--line); padding: 40px 0 48px; color: var(--dim); font-size: 13px; }
 footer .wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: start; }
@@ -243,8 +255,7 @@ footer nav a:hover { color: var(--a2); }
   .breath .face.btn, .breath .slit { animation: none; }
   .breath .face.btn { fill: #aba493; }
   .breath .slit { fill: #a29c8e; }
-  .anim .word span, .anim .synth, .anim .bands i { opacity: 1 !important; transform: none !important; letter-spacing: .02em; animation: none !important; transition: none !important; }
-  .anim .word span { letter-spacing: inherit; }
+  .anim .word span, .anim .synth, .anim .bands i { animation: none !important; }
   .reveal { opacity: 1; transform: none; transition: none; }
   .power::before { animation: none; }
 }
@@ -256,6 +267,7 @@ footer nav a:hover { color: var(--a2); }
     <a class="brand" href="#top" aria-label="MRC Synth"><span class="bands-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>MRC <small>synth</small></a>
     <nav>
       <a class="opt" href="#emulator">Emulator</a>
+      <a class="opt" href="#install">Install</a>
       <a class="btn primary small" href="editor/">Editor <span class="arrow" aria-hidden="true">→</span></a>
     </nav>
   </div>
@@ -362,6 +374,26 @@ footer nav a:hover { color: var(--a2); }
     </div>
   </div>
 </section>
+<section class="block" id="install">
+  <div class="wrap">
+    <div class="head reveal">
+      <div>
+        <p class="kicker"><b>03</b> Installer</p>
+        <h2>Put it on <em>your FM-1.</em></h2>
+        <p class="lede">The installer writes MRC Synth to the instrument from the browser. No tools, no drivers, and a way back to the official firmware if you want it.</p>
+      </div>
+    </div>
+    <div class="install reveal">
+      <div class="step" style="--c: var(--a1)"><b>1</b><h3>Plug it in</h3><p>Connect the FM-1 straight to the computer with a USB data cable, no hub.</p></div>
+      <div class="step" style="--c: var(--a2)"><b>2</b><h3>Press Install</h3><p>In Chrome or Edge, allow MIDI. Keep the cable in while it writes.</p></div>
+      <div class="step" style="--c: var(--a4)"><b>3</b><h3>Play</h3><p>It restarts into MRC Synth. Then open the editor to shape it from here.</p></div>
+    </div>
+    <div class="install-cta reveal">
+      <a class="btn primary" href="installer/">Open the installer <span class="arrow" aria-hidden="true">→</span></a>
+      <span class="note">FIRMWARE @VERSION@ · CHROME OR EDGE · AT YOUR OWN RISK</span>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>
@@ -412,11 +444,8 @@ footer nav a:hover { color: var(--a2); }
   }
   const letters = [...hero.querySelectorAll(".word span")];
   letters.forEach((l) => l.addEventListener("animationend", () => burst(l)));
-  const play = () => requestAnimationFrame(() => hero.classList.add("on"));
-  (document.fonts?.load("200 100px 'Inter Tight'") || Promise.resolve()).then(play, play);
-  setTimeout(play, 1200);                                           // never wait on a slow font
   // a click on the wordmark plays it again
-  logo.addEventListener("click", () => { hero.classList.remove("on"); void logo.offsetWidth; play(); });
+  logo.addEventListener("click", () => { hero.classList.remove("anim"); void hero.offsetWidth; hero.classList.add("anim"); });
 
   // sections rise in as they come into view
   const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }),
