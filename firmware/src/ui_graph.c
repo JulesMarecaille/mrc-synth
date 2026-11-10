@@ -601,6 +601,11 @@ static void orbits(uint32_t ph, int32_t dep, int32_t rate, uint32_t n, uint16_t 
         }
     }
 }
+/* MRC: REVERB's and CHORUS's drawing at the track's send (KNOB 4): the colour at 10 % (send 0) .. 100 % (127) */
+static uint16_t fx_dim(uint16_t c, int32_t lvl)
+{
+    return ux_mix(T_SURF, c, 10 + clamp(lvl, 0, 127) * 90 / 127);
+}
 /* MRC: the CHORUS page (the global RATE and DPTH, not the scope): three orbits, RATE turns and wobbles them, DPTH flattens them */
 static void graph_chorus(uint16_t c)
 {
@@ -737,7 +742,7 @@ static void graph_delay(uint16_t c)
 {
     uint32_t n = bn_drops(), i, now = fx.dly_w, dl = delay_samples();
     int32_t w = bn_gap(), x;
-    int32_t m = BN_RIM + (100 - BN_RIM) * clamp(song.g[G_DMIX], 0, 127) / 127;   /* MIX: all of it, % */
+    int32_t m = BN_RIM + (100 - BN_RIM) * clamp(TSEL->p[P_DLY], 0, 127) / 127;   /* the track's DLY: all of it, % */
     int32_t sh = clamp(song.g[G_DCOLOR], 0, 127);
     uint16_t a1 = MRC_ON ? MRC_ACCENT[1 % MRC_ACCENTS] : c, a3 = MRC_ON ? MRC_ACCENT[3 % MRC_ACCENTS] : c;
     bn_levels();
@@ -1223,6 +1228,7 @@ static void graph_flanger(int32_t a, int32_t b, int32_t l, uint16_t c)
     for (i = (l * 3 + 63) / 127; i >= 0; i--)
         ins_wave(0u - (uint32_t)(i * dx) * 2684355u, WV_D2, 256, 44, ux_mix(T_SURF, c, 100 - i * 24));
 }
+static void note_line(int32_t y, const char *s, uint16_t fg);   /* (below: the panel notes' hint line) */
 static void graph_insert(const track_t *t, uint16_t c)
 {
     int32_t ty = clamp(t->p[P_ITYPE], 0, IT_N - 1), a = clamp(t->p[P_IA], 0, 127), b = clamp(t->p[P_IB], 0, 127);
@@ -1254,10 +1260,18 @@ static void graph_insert(const track_t *t, uint16_t c)
         orbits(sw_phase(a, OR_SLOW), b, a, 2u + (uint32_t)(l * 3 + 63) / 127u, ink);
         break;
     default: {                                       /* OFF: the word */
+        /* MRC: and under it, the hint that SELECT picks a TYPE (the empty lists' note_line); the two centred together */
         const aafont_t *f = large_face_has("OFF") ? &AF_L : &AF_M;
-        GFX_HOOK_ALIGN(0, 0, 240, H_GRAPH, AL_HV, "insert off centred");
-        cv_text_in(0, f == &AF_L ? CAP_IN(L, H_GRAPH) : CAP_IN(M, H_GRAPH), 240, f, "OFF", T_MID, T_SURF);
+        int32_t ch = f == &AF_L ? AF_L_CAP_H : AF_M_CAP_H, top = HALF_UP(H_GRAPH - (ch + 14 + KC_H));
+        GFX_HOOK_ALIGN(0, 0, 240, 0, AL_H, "insert off centred");
+        cv_text_in(0, top - (f == &AF_L ? AF_L_CAP_Y : AF_M_CAP_Y), 240, f, "OFF", T_MID, T_SURF);
+        note_line(top + ch + 14, "[SELECT] PICK A TYPE", T_DIM);
     }
+    }
+    if (ty > IT_OFF) {                               /* MRC: the TYPE (SELECT turns it) top left, under the knobs; OFF
+                                                      * says itself in the middle */
+        static const char *const NAME[] = {"", "SOFT", "HARD", "FOLD", "FUZZ", "CRUSH", "PHASER", "FLANGER", "CHORUS"};
+        cv_text(6, 6 - AF_S_CAP_Y, &AF_S, ty < (int32_t)NELEM(NAME) ? NAME[ty] : "", T_MID);
     }
 }
 
@@ -1755,6 +1769,87 @@ static int32_t mn_gain(int32_t w, int32_t mode, int32_t k)
     uint32_t den = px_isqrt64((uint64_t)(re * re + im * im));
     num = mode == 0 ? 65536 : mode == 1 ? (int64_t)w * 351 : mode == 2 ? w2 : (re < 0 ? -re : re);   /* (BP x 1.37) */
     return den ? (int32_t)(num * 256 / den < 614 ? num * 256 / den : 614) : 614;
+}
+/* MRC: the track FILTER page (fx.c track_filter): a cat's face, graph_cat below */
+/* the CAT view: a cat's face, drawn as its left half and mirrored. LOW CUT (KNOB 1) is a vertical dotted line, across
+ * the same width as the CURVE (8 + cut x 224 / 127): the face left of it is dots. HIGH CUT (KNOB 2) the same, the face
+ * right of it dotted (127 OFF: at the edge, nothing). The cuts move in, the dotted part grows. RES (KNOB 3) grows hair
+ * on the head and ears: ticks pointing out from the middle of the face, closer and longer. Nothing moves or listens */
+static void cat_piece(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t xl, int32_t xr, uint16_t c, uint16_t cd, uint32_t *cnt)
+{
+    int32_t xm = (x0 + x1) / 2, dx = x1 - x0, dy = y1 - y0, n = (dx < 0 ? -dx : dx) > (dy < 0 ? -dy : dy) ? (dx < 0 ? -dx : dx) : (dy < 0 ? -dy : dy), s, xb;
+    if (dx != 0 && ((x0 < xl) != (x1 < xl)) && x0 != xl && x1 != xl) {         /* across LOW CUT's line: split */
+        xb = xl;
+        cat_piece(x0, y0, xb, y0 + dy * (xb - x0) / dx, xl, xr, c, cd, cnt);
+        cat_piece(xb, y0 + dy * (xb - x0) / dx, x1, y1, xl, xr, c, cd, cnt);
+        return;
+    }
+    if (dx != 0 && ((x0 > xr) != (x1 > xr)) && x0 != xr && x1 != xr) {         /* across HIGH CUT's */
+        xb = xr;
+        cat_piece(x0, y0, xb, y0 + dy * (xb - x0) / dx, xl, xr, c, cd, cnt);
+        cat_piece(xb, y0 + dy * (xb - x0) / dx, x1, y1, xl, xr, c, cd, cnt);
+        return;
+    }
+    if (xm >= xl && xm <= xr) {
+        cv_stroke(LN(x0), LN(y0), LN(x1), LN(y1), c);
+        return;
+    }
+    for (s = 0; s <= n; s++, (*cnt)++)
+        if (*cnt % 5u < 2u)
+            cv_rect(x0 + (n ? dx * s / n : 0) - 1, y0 + (n ? dy * s / n : 0) - 1, 2, 2, cd);
+}
+static void cat_poly(const uint8_t *p, int32_t n, int32_t mir, int32_t xl, int32_t xr, uint16_t c, uint16_t cd)
+{
+    uint32_t cnt = 0;
+    int32_t i;
+    for (i = 1; i < n; i++)
+        cat_piece(mir ? 240 - p[2 * i - 2] : p[2 * i - 2], p[2 * i - 1], mir ? 240 - p[2 * i] : p[2 * i], p[2 * i + 1], xl, xr, c, cd, &cnt);
+}
+static void cat_hair(const uint8_t *p, int32_t n, int32_t mir, int32_t res, uint16_t c)
+{
+    int32_t sp = 12 - res * 9 / 127, i, j;
+    for (i = 1; i < n; i++) {
+        int32_t x0 = mir ? 240 - p[2 * i - 2] : p[2 * i - 2], y0 = p[2 * i - 1], x1 = mir ? 240 - p[2 * i] : p[2 * i], y1 = p[2 * i + 1];
+        int32_t dx = x1 - x0, dy = y1 - y0, len = (int32_t)isqrt32((uint32_t)(dx * dx + dy * dy)), m = len / sp + 1;
+        for (j = 0; j < m; j++) {
+            int32_t x = x0 + dx * j / m, y = y0 + dy * j / m, vx = x - 120, vy = y - 72;
+            int32_t nn = (int32_t)isqrt32((uint32_t)(vx * vx + vy * vy)) | 1, h = (int32_t)(((uint32_t)(i * 31 + j * 17 + mir * 7) * 2654435761u) >> 28);
+            int32_t l = (res * 7 / 127) * (10 + h) / 25 + 1;
+            cv_stroke(LN(x), LN(y), LN(x + vx * l / nn), LN(y + vy * l / nn), c);
+        }
+    }
+}
+static void graph_cat(const track_t *t, uint16_t c)
+{
+    static const uint8_t HEAD[] = {120, 36, 100, 36, 84, 40, 70, 50, 62, 64, 62, 80, 68, 96, 82, 110, 100, 118, 120, 120};
+    static const uint8_t EAR[] = {68, 52, 58, 18, 96, 37};
+    static const uint8_t EYE[] = {86, 74, 96, 62, 106, 74};                    /* ^ */
+    static const uint8_t NOSE[] = {120, 84, 112, 84, 120, 92};
+    static const uint8_t MOUTH[] = {120, 92, 120, 98, 112, 104, 104, 102};
+    static const uint8_t WH1[] = {86, 88, 48, 82}, WH2[] = {86, 94, 46, 96}, WH3[] = {86, 100, 50, 110};
+    static const struct { const uint8_t *p; uint8_t n; } L[] = {
+        {HEAD, 10}, {EAR, 3}, {EYE, 3}, {NOSE, 3}, {MOUTH, 4}, {WH1, 2}, {WH2, 2}, {WH3, 2}};
+    int32_t res = clamp(t->p[P_TRES], 0, 127), lc = clamp(t->p[P_TLC], 0, 127), hc = clamp(t->p[P_THC], 0, 127);
+    int32_t xl = 46 + lc * 148 / 127, xr = 46 + hc * 148 / 127, side, i, y;   /* (the whiskers' tips: the face's width) */
+    uint16_t hair = ux_mix(T_SURF, c, 45), cd = ux_mix(T_SURF, c, 55);         /* the cut parts, dimmer: not let through */
+    for (side = 0; side < 2; side++) {
+        if (res > 0) {
+            cat_hair(HEAD, 10, side, res, hair);
+            cat_hair(EAR, 3, side, res, hair);
+        }
+        for (i = 0; i < (int32_t)NELEM(L); i++)
+            cat_poly(L[i].p, L[i].n, side, xl, xr, c, cd);
+    }
+    for (y = 14; y < 126; y += 4) {                                            /* the cuts, T_MID: the knobs' own */
+        if (lc > 0)
+            cv_rect(xl, y, 1, 2, T_MID);
+        if (hc < 127)
+            cv_rect(xr, y, 1, 2, T_MID);
+    }
+}
+static void graph_tflt(const track_t *t, uint16_t c)
+{
+    graph_cat(t, c);
 }
 static void graph_trio(const track_t *t, uint16_t c)
 {
@@ -2380,18 +2475,6 @@ static const uint16_t VX_F2[11] = {32767, 32603, 32105, 31258, 30032, 28377, 262
 static const uint16_t VX_F4[11] = {32767, 32766, 32754, 32700, 32555, 32243, 31650, 30593, 28722, 25093, 0};
 /* cos^0.6, Q15, a quarter turn in eighths: the lenses' rounded squares */
 static const uint16_t VX_SQ[9] = {32767, 32388, 31247, 29334, 26615, 23037, 18406, 12295, 0};
-static int32_t vx_sqrt(uint32_t x)
-{
-    uint32_t r = 0, b = 1u << 30;
-    while (b > x) b >>= 2;
-    for (; b; b >>= 2)
-        if (x >= r + b) {
-            x -= r + b;
-            r = (r >> 1) + b;
-        } else
-            r >>= 1;
-    return (int32_t)r;
-}
 static void vx_mouth(int32_t pos, int32_t *m)        /* the mouth at vowel position pos (0..127 << 8): VX_MOUTH's */
 {
     int32_t x = clamp(pos, 0, 127 << 8) * 4 / 127, i = x >> 8, fr = x & 255, j;
@@ -2488,7 +2571,7 @@ static void graph_formant(const track_t *t, uint16_t c)
      * the bubble pops */
     if (age > vx_age || (lv && lv->note != vx_note && (p[P_VOICE] == V_MONO || p[P_VOICE] == V_LEGATO)))
         vx_bt = now;
-    if (age > vx_age || age + 0x10000u < vx_age)     /* (vage wrapped, or another track) */
+    if (age > vx_age || age + 65536u < vx_age)     /* (vage wrapped, or another track) */
         vx_age = age;
     buzz = clamp(p[P_E4] + (lv ? ((int32_t)lv->vel - 96) * 40 / 256 : 0), 0, 127);
     v0 = p[P_E0] << 8;                               /* the vowel, as formant_render takes it */
@@ -2510,7 +2593,7 @@ static void graph_formant(const track_t *t, uint16_t c)
     vx_mouth(v1, m1);
     for (j = 0; j < 6; j++)
         m[j] = m0[j] + ((m1[j] - m0[j]) * k >> 15);
-    open = vx_sqrt((uint32_t)lvl << 15);
+    open = (int32_t)isqrt32((uint32_t)lvl << 15);
     mw = m[0] * sc / 256 * (85 + 15 * open / 32768) / 100;
     mh = m[1] * sc / 256 * open / 32768;
     if (mh < 10) mh = 10;
@@ -2932,7 +3015,7 @@ static void nz_frame(nzf_t *f, const track_t *t)
     lvl = clamp(lvl, 0, 32767);
     if (lvl < 66) lvl = 0;
     f->on = age > nzs.age;                           /* (voice.c ages each voice: a newer one, a new note) */
-    if (age > nzs.age || age + 0x10000u < nzs.age)
+    if (age > nzs.age || age + 65536u < nzs.age)
         nzs.age = age;
     if (lv) {
         nzs.note = lv->note;
@@ -3319,19 +3402,7 @@ static struct {
     int32_t lv[DV_NLANE], dim;                       /* each lane's piece at its level (EDIT > LANES), %; the piece drawn's */
     uint16_t c;
 } dk = {.part = 0xFF, .dim = 100};
-static int32_t dk_sqrt(int32_t v)
-{
-    int32_t r = 0, b = 1 << 30;
-    if (v <= 0) return 0;
-    while (b > v) b >>= 2;
-    for (; b; b >>= 2)
-        if (v >= r + b) {
-            v -= r + b;
-            r = (r >> 1) + b;
-        } else
-            r >>= 1;
-    return r;
-}
+static int32_t dk_sqrt(int32_t v) { return v > 0 ? (int32_t)isqrt32((uint32_t)v) : 0; }   /* (eng_noise.c's) */
 /* a lane's ring now, Q15: the hit's velocity dying away over tau ms (DECY's 1/4 .. x2 when decy >= 0) */
 static int32_t dk_lvl(uint32_t l, uint32_t tau, int32_t decy)
 {
@@ -3865,7 +3936,7 @@ static void pv_frame(const track_t *t)
         if (v->age > age) age = v->age;
     }
     pv.on = !fresh && age > pv.age;                  /* (voice.c ages each voice: a newer one, a new note) */
-    if (age > pv.age || age + 0x10000u < pv.age) pv.age = age;
+    if (age > pv.age || age + 65536u < pv.age) pv.age = age;
     if (pv.on) {
         pv.hit = fx.dly_w;
         pv.pk = pv.lpk = pv.mpk = pv.spk = 1;
@@ -4831,14 +4902,15 @@ static uint32_t graph_signature(void)
         pg->graph == GR_LANES ||
         (pg->graph == GR_INS && t->p[P_ITYPE] >= IT_PHASER)) h ^= ui.frame / 2u;   /* (the swept INSERTs move) */
     if (pg->graph == GR_CHO)                        /* (the globals, not the track's) */
-        h = (h ^ ((uint32_t)song.g[G_CRATE] | (uint32_t)song.g[G_CDEPTH] << 8)) * 16777619u;
+        h = (h ^ ((uint32_t)song.g[G_CRATE] | (uint32_t)song.g[G_CDEPTH] << 8 | (uint32_t)t->p[P_CHOR] << 16)) * 16777619u;
     if (pg->graph == GR_REV) {                       /* (the globals; all three move) */
-        h = (h ^ ((uint32_t)song.g[G_RTYPE] | (uint32_t)song.g[G_RSIZE] << 8 | (uint32_t)song.g[G_RDAMP] << 16)) * 16777619u;
+        h = (h ^ ((uint32_t)song.g[G_RTYPE] | (uint32_t)song.g[G_RSIZE] << 8 | (uint32_t)song.g[G_RDAMP] << 16 |
+                  (uint32_t)t->p[P_REV] << 24)) * 16777619u;
         h ^= ui.frame / 2u;   /* (all three move: the cube turns, the coil rolls, the torus turns) */
     }
     if (pg->graph == GR_DLY) {                       /* BOUNCE, while a note is still drawn; the globals and the tempo shape them */
         h = (h ^ ((uint32_t)song.g[G_DTIME] | (uint32_t)song.g[G_DFDBK] << 8 | (uint32_t)song.g[G_DCOLOR] << 16 |
-                  (uint32_t)song.g[G_DMIX] << 24)) * 16777619u;
+                  (uint32_t)t->p[P_DLY] << 24)) * 16777619u;
         h = (h ^ delay_samples()) * 16777619u;
         if (bn_live()) h ^= ui.frame / 2u;
     }
@@ -5809,7 +5881,7 @@ static void draw_graph(void)
             break;
         case GR_CHO:
             cv_oy = 0;                                /* (the circles take the panel's height, not the 100 scale) */
-            graph_chorus(c);
+            graph_chorus(fx_dim(c, t->p[P_CHOR]));
             break;
         case GR_DLY:
             cv_oy = 0;                                /* (the circles take the panel's height, not the 100 scale) */
@@ -5817,7 +5889,7 @@ static void draw_graph(void)
             break;
         case GR_REV:
             cv_oy = 0;                                /* (the drawings take the panel's height, not the 100 scale) */
-            graph_reverb(c);
+            graph_reverb(fx_dim(c, t->p[P_REV]));
             break;
         case GR_EDEST:
             cv_oy = 0;                                /* (the boxes take the panel's height, not the 100 scale) */
@@ -5830,6 +5902,10 @@ static void draw_graph(void)
         case GR_SLCR:
             cv_oy = 0;                                /* (the ring takes the panel's height, not the 100 scale) */
             graph_slicer(t, c);
+            break;
+        case GR_TFLT:
+            cv_oy = 0;                                /* (the curve takes the panel's height, not the 100 scale) */
+            graph_tflt(t, c);
             break;
         case GR_INS:
             cv_oy = 0;                                /* (the drawings take the panel's height, not the 100 scale) */

@@ -568,7 +568,8 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
 {
     uint32_t i, dl = delay_samples();
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
-    int32_t dmix = song.g[G_DMIX] * 258;
+    int32_t dmix = 90 * 258;                            /* MRC: the return, fixed at MIX's old default (90 / 127): the level
+                                                         * is the tracks' DLY sends alone (G_DMIX is on no page any more) */
     int32_t cdepth = song.g[G_CDEPTH] * 6, rt;
     uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
     if (pf.ew1 && fb < THR_FB)
@@ -816,6 +817,48 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
     t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
 }
 
+/* MRC: the track FILTER, after the INSERT and before the SLICER: LOW CUT (P_TLC, 0 OFF) a high-pass, HIGH CUT (P_THC,
+ * 127 OFF) a low-pass, both 12 dB Simper SVFs (dsp.c tsvf_coef_k, ANALOG's) at F_CUTOFF's 30 Hz .. 16 kHz, RES (P_TRES)
+ * on both as ANALOG's RES (damping 2 .. ~0.15). Both OFF: nothing runs, the track bit for bit as before. The signal at
+ * a quarter inside (the SVF's +-150000: 8 loud voices and a resonant peak), the coefficients a block at a time. With
+ * SPREAD the side (d) too, its own state: a HIGH CUT takes the whole image's highs. State in the pool, 64 B a track */
+#define TF_ON(t) ((t)->p[P_TLC] > 0 || (t)->p[P_THC] < 127)
+typedef struct {
+    int32_t s[2][4];                    /* [mono sum, side][LOW CUT's two, HIGH CUT's two] */
+    uint32_t run;                       /* state to clear once the track is silent */
+} tflt_t;
+static tflt_t tflt[NTRK] __attribute__((section(".pool")));
+
+static __attribute__((noinline)) void track_filter(track_t *t, int32_t *b, uint32_t n, uint32_t side)
+{
+    tflt_t *f = &tflt[(uint32_t)(t - trk) % NTRK];
+    int32_t *s = f->s[side & 1u], lc = t->p[P_TLC], hc = t->p[P_THC];
+    int32_t k = 8192 - clamp(t->p[P_TRES], 0, 127) * 7600 / 127;   /* damping, Q12 (tsvf_coef's) */
+    tsvf_t c;
+    uint32_t i;
+    f->run = 1;
+    for (i = 0; i < n; i++)
+        b[i] = clamp(b[i] >> 2, -150000, 150000);
+    if (lc > 0) {                                       /* high-pass: in - k v1 - v2 (eng_analog.c analog_tap's HP) */
+        tsvf_coef_k(&c, clamp(lc, 0, 127) << 8, k);
+        for (i = 0; i < n; i++) {
+            int32_t x = b[i], v3 = x - s[1];
+            int32_t v1 = (c.a1 * s[0] + c.a2 * v3) >> 13;
+            int32_t v2 = s[1] + ((c.a2 * s[0] + c.a3 * v3) >> 13);
+            s[0] = clamp(2 * v1 - s[0], -150000, 150000);
+            s[1] = clamp(2 * v2 - s[1], -150000, 150000);
+            b[i] = clamp(x - ((k * v1) >> 12) - v2, -150000, 150000);
+        }
+    }
+    if (hc < 127) {                                     /* low-pass */
+        tsvf_coef_k(&c, clamp(hc, 0, 127) << 8, k);
+        for (i = 0; i < n; i++)
+            b[i] = tsvf_lp(&c, b[i], &s[2], &s[3]);
+    }
+    for (i = 0; i < n; i++)
+        b[i] <<= 2;
+}
+
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
  * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
 static void events_block(uint32_t n);                    /* seq.c */
@@ -851,6 +894,10 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     track_dist(t, b, n);
     if (t->p[P_ITYPE] | t->ins_run)
         track_insert(t, b, n);                          /* (the mono sum, as DIST) */
+    if (TF_ON(t)) {                                     /* MRC: the track FILTER, the sum and the side */
+        track_filter(t, b, n, 0u);
+        track_filter(t, d, n, 1u);
+    }
     slicer_track_sd(t, b, d, n);
     if ((pf.mute >> (t - trk)) & 1u)
         perf_mute_sd((uint32_t)(t - trk), b, d, n);
@@ -908,8 +955,10 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
 #endif
         t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
                                                          * voice (the INSERT's: 46 ms, a flanger's feedback) */
-    else if ((!t->tail || !(t->p[P_DIST] | t->p[P_ITYPE]) || !--t->tail) && !slicer_busy(t)) {
+    else if ((!t->tail || !(t->p[P_DIST] | t->p[P_ITYPE] | TF_ON(t)) || !--t->tail) && !slicer_busy(t)) {
         slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
+        if (tflt[(uint32_t)(t - trk) % NTRK].run)       /* MRC: the FILTER's ring out: the next note from rest */
+            memset(&tflt[(uint32_t)(t - trk) % NTRK], 0, sizeof(tflt_t));
         if (t->ins_run && !t->p[P_ITYPE])
             ins_rest(t);                                /* TYPE OFF while silent: no fade-out left for the next note */
         if (MOD(t).on)
@@ -922,6 +971,8 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
         track_dist(t, b, n);
         if (t->p[P_ITYPE] | t->ins_run)
             track_insert(t, b, n);                      /* the INSERT (1.5): off, nothing */
+        if (TF_ON(t))
+            track_filter(t, b, n, 0u);                  /* MRC: the track FILTER: off, nothing */
         slicer_track(t, b, n);                          /* slicer.c: before the level, pan and sends */
         if ((pf.mute >> (t - trk)) & 1u)
             perf_mute((uint32_t)(t - trk), b, n);       /* perform.c: a black key in the FX layer */

@@ -318,9 +318,34 @@ static int kits(void)
     return bad;
 }
 
+/* MRC: the flavor keys (F3 .. B3 held, kb_flav) name what they make */
+static int flavors(void)
+{
+    int bad = 0;
+    static const struct { uint32_t chrd, f, note; const char *name; } T[] = {
+        {CH_DIA3, 0, 60, "C"},       {CH_DIA3, MF_7, 60, "Cmaj7"},  {CH_DIA3, MF_7, 67, "G7"},
+        {CH_DIA3, MF_7, 62, "Dm7"},  {CH_DIA3, MF_ADD9, 60, "Cadd9"}, {CH_DIA3, MF_ADD9 | MF_7, 62, "Dm9"},
+        {CH_DIA3, MF_ADD9 | MF_7, 60, "Cmaj9"}, {CH_DIA3, MF_6, 60, "C6"}, {CH_DIA3, MF_6 | MF_ADD9, 65, "F6/9"},
+        {CH_DIA3, MF_SUS4, 67, "Gsus4"}, {CH_DIA3, MF_SUS2, 62, "Dsus2"}, {CH_DIA3, MF_SUS4 | MF_7, 67, "G7sus4"},
+        {CH_DIA3, MF_SUS2 | MF_SUS4, 60, "Csus24"}, {CH_DIA3, MF_POW, 60, "C5"}, {CH_DIA3, MF_POW | MF_7, 67, "G7no3"},
+        {CH_DIA3, MF_ADD9, 64, "Emadd11"}, {CH_DIA3, MF_11, 62, "Dmadd11"}, {CH_DIA3, MF_11, 65, "Fadd#11"}, {CH_MIN, MF_6, 60, "Cm6"},
+        {CH_DOM7, MF_ADD9, 60, "C9"},
+    };
+    uint32_t i;
+    for (i = 0; i < sizeof T / sizeof T[0]; i++) {
+        reset();
+        trk[0].p[P_CHRD] = (int16_t)T[i].chrd;
+        kb_flav = T[i].f;
+        flav_trk = 0;
+        bad += check(T[i].name, name_is(T[i].note, T[i].name));
+    }
+    kb_flav = 0;
+    return bad;
+}
+
 int main(void)
 {
-    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + kits();
+    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + kits() + flavors();
     printf("%s\n", bad ? "CHORD TEST FAILED" : "chord keys test passed");
     return bad != 0;
 }

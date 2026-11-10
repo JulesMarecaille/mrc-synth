@@ -2989,14 +2989,14 @@ static int test_layer(void)
                  ok && ui.home && !ui.layer);
     /* the HOLD setting: 0.6 s */
     ui_power_on();
-    hold(B_HOME); ui.menu_sel = MI_HOLD; turn(EN_K1, 1); turn(EN_K1, 1); ok = settings_hold == 3u; hold(B_HOME);
+    hold(B_HOME); ui.menu_sel = MI_HOLD; turn(EN_K1, 1); turn(EN_K1, 1); ok = settings_hold == 5u; hold(B_HOME);
     btn_down(B_FX); frames(512); flash = ui.layer; btn_up(B_FX); frame();
     bad += check("menu HOLD 0.6 s (KNOB 1): FX held 0.5 s is a tap, no map", ok && !flash && !ui.home && !ui.menu);
     {
         persist_t p = {0};
         p.magic = PERSIST_MAGIC; p.panel = panel;
         settings_export(&p); settings_hold = HOLD_DEF;
-        bad += check("  HOLD is saved with the settings and read back", settings_import(&p, sizeof p) && settings_hold == 3u);
+        bad += check("  HOLD is saved with the settings and read back", settings_import(&p, sizeof p) && settings_hold == 5u);
     }
     /* the LEDS setting: KNOB 1 / OCT+ up to INV, left / OCT- down to OFF; saved in the retired zoom field */
     ui_power_on();
@@ -7005,7 +7005,7 @@ static int test_rec_layer(void)
     bad += check("REC layer: REC held on STEP USER PATTERNS SONG CLEAR ENV MIXER HOME opens it", ok);
     bad += check("  no CLEAR dialog any more, nothing armed, cleared or started (#91's hold replaced)", ok);
     ok = 1;
-    for (k = 0; k < 4u; k++) {                          /* the menu's HOLD time, as the other layers */
+    for (k = 0; k < HOLD_N; k++) {                       /* the menu's HOLD time, as the other layers */
         ui_power_on();
         settings_hold = (uint8_t)k;
         rec_down();
@@ -7014,7 +7014,7 @@ static int test_rec_layer(void)
         ok &= ui.layer == LAYER_REC && i * 16u >= HOLD_MS[k] && i * 16u <= HOLD_MS[k] + 32u;
         rec_up();
     }
-    bad += check("  it opens after MENU > HOLD (0.3 .. 0.6 s), not the old 0.7 s", ok);
+    bad += check("  it opens after MENU > HOLD (0.1 .. 0.6 s), not the old 0.7 s", ok);
     ui_power_on();
     press(B_REC);
     ok = ui.home && song.rec == 1u && transport_req == 1u && !ui.layer;

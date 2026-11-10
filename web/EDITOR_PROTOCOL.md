@@ -75,6 +75,11 @@ insert effect with a dry / wet mix, Discussions #78 #177), then `TYPE` (101, ANA
 P_COUNT and P_E0 from `INFO` keeps working. Projects stay FUN10 (3840 bytes, 111 at byte 66; 16 bytes to spare). See
 "1.5: the INSERT" and "1.5: filter TYPE, ENV SYNC" below.
 
+**MRC (114 parameters, FUN10 as it was):** the track FILTER, three track parameters before the engine parameters,
+which moved from 103..110 to 106..113: P_COUNT 114, P_E0 106. `LCUT` (103, LOW CUT: 0 OFF, else F_CUTOFF's 30 Hz ..
+16 kHz), `HCUT` (104, HIGH CUT: 127 OFF), `RES` (105), a 12 dB high-pass and low-pass after the INSERT. No command
+changed. Projects stay FUN10, 114 at byte 66: of its 13 spare bytes before MIDI IN TRACK's, 12 are these, 1 is left.
+
 ## Framing
 
 A request is `F0 7D 46 4C <cmd> <args...> F7`:
@@ -1105,7 +1110,7 @@ before MIDI IN the first 21, 1.2 the first 23, 1.3 / 1.4 the first 24, 1.5 / 1.5
 | 2 | 2 | LARGE | 0 | 0 OFF, 1 ON | OFF | 0 DISPLAY |
 | 3 | 3 | ANIM | 0 | 0 ON, 1 OFF, 2 IDLE (1.2: ON plus the LEDs' idle animation; firmware before: max 1) | ON | 0 DISPLAY |
 | 4 | 4 | LEDS | 0 | 0 OFF, 1 DIM LO, 2 DIM HI, 3 INV (darkest first, as the menu steps them); 1.5.6 (#212): 4 INV LO, 5 INV HI (INV with the idle LEDs at a steady low level: appended) | DIM HI | 0 DISPLAY |
-| 5 | 5 | HOLD | 0 | 0 "0.3 s", 1 "0.4 s", 2 "0.5 s", 3 "0.6 s" | 0.4 s | 1 CONTROL |
+| 5 | 5 | HOLD | 0 | 0 "0.1 s", 1 "0.2 s", 2 "0.3 s", 3 "0.4 s", 4 "0.5 s", 5 "0.6 s" | 0.4 s | 1 CONTROL |
 | 6 | 6 | KNOB ACCEL | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |
 | 7 | 7 | FX LATCH | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |
 | 8 | 8 | BPM LOCK | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |

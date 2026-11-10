@@ -75,16 +75,25 @@ static void settings_save(void);              /* project.c: flash copy (FELUCCA_
 
 /* HOLD (menu): how long a button is held before its layer opens (ui_input.c). Saved in the settings record's
  * retired bold field as HOLD_TAG | index; any other value there (0 or 1 from older firmware) is the default */
-#define HOLD_TAG 0x484C4400u
-#define HOLD_DEF 1u
-static const uint16_t HOLD_MS[4] = {300, 400, 500, 600};
+#define HOLD_TAG 0x484C4400u                    /* older: index 0..3 = 0.3 .. 0.6 s (now index + 2) */
+#define HOLD_TAG2 0x484C4410u                   /* index 0..5 = 0.1 .. 0.6 s */
+#define HOLD_DEF 3u
+#define HOLD_N 6u
+static const uint16_t HOLD_MS[HOLD_N] = {100, 200, 300, 400, 500, 600};
 static uint8_t settings_hold = HOLD_DEF;
-static uint32_t hold_from_stored(uint32_t v) { return (v & ~3u) == HOLD_TAG ? v & 3u : HOLD_DEF; }
+static uint32_t hold_from_stored(uint32_t v)
+{
+    if ((v & ~15u) == HOLD_TAG2) return (v & 15u) < HOLD_N ? v & 15u : HOLD_DEF;
+    return (v & ~3u) == HOLD_TAG ? (v & 3u) + 2u : HOLD_DEF;
+}
 static uint32_t hold_to_stored(uint32_t old, uint32_t i)
 {
-    return i % 4u != HOLD_DEF ? HOLD_TAG | (i & 3u) : old > 1u ? 0u : old;
+    return i % HOLD_N != HOLD_DEF ? HOLD_TAG2 | (i % HOLD_N) : old > 1u ? 0u : old;
 }
-static int hold_stored_ok(uint32_t v) { return v <= 1u || (v & ~3u) == HOLD_TAG; }
+static int hold_stored_ok(uint32_t v)
+{
+    return v <= 1u || (v & ~3u) == HOLD_TAG || ((v & ~15u) == HOLD_TAG2 && (v & 15u) < HOLD_N);
+}
 
 /* LEDS (menu): OFF, DIM LO, DIM HI, INV. DIM HI (the default), the idle buttons and keys glow dim (~1/30) and the
  * active ones are lit (#35); DIM LO the same, darker (~1/60, bsp/boards/fm1/fm1_input.h FM1_LED_DIM_LO_NS); OFF no glow,

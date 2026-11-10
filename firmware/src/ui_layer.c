@@ -275,7 +275,7 @@ static uint32_t layer_gesture(uint32_t now, uint32_t combo)
     }
     if (ly_down(l)) {
         if (!(*t0 & (LY_OPEN | LY_DEAD)) &&
-            (combo || now - (*t0 & ~15u) >= (uint32_t)HOLD_MS[settings_hold % 4u] * 1000u * FM1_TICKS_PER_US)) {
+            (combo || now - (*t0 & ~15u) >= (uint32_t)HOLD_MS[settings_hold % HOLD_N] * 1000u * FM1_TICKS_PER_US)) {
             *t0 |= LY_OPEN | (combo ? LY_COMBO : 0u);
             layer_opened(l);
         }
@@ -845,7 +845,9 @@ static uint32_t layer_leds(uint32_t *br)
     const eqa_t *a;
     for (k = 0; k < 27u; k++) {
         uint32_t p = key_place(k), b = (uint32_t)key_black(k), on = 0, can = 0, e;
-        if (l == LAYER_FX) {                            /* effects breathe, held lit, a too-long REPEAT dark */
+        if (l == LAYER_FX && b) {                       /* black keys: lit while their track sounds, dark when muted (or held) */
+            on = p < NTRK && glo_sounding(p) && !((held >> (PF_M1 + p)) & 1u);
+        } else if (l == LAYER_FX) {                     /* effects breathe, held lit, a too-long REPEAT dark */
             e = perf_key(k);
             can = e < PF_N && ((ok >> e) & 1u);
             on = can && ((held >> e) & 1u);

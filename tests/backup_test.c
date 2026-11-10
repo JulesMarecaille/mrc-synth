@@ -206,7 +206,7 @@ int main(void)
     bad += check("settings with an unknown SPEAKER value are refused, nothing written",
                  put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 2u && erases == before && settings.lowcut == 2u);
     ps.lowcut = 0;
-    ps.bold = hold_to_stored(0, 3);                      /* HOLD 0.6 s */
+    ps.bold = hold_to_stored(0, 5);                      /* HOLD 0.6 s */
     bad += check("settings with HOLD 0.6 s restore",
                  put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 && HOLD_MS[settings_hold] == 600u);
     ps.bold = 1;                                         /* an older backup (its font weight): HOLD 0.4 s */

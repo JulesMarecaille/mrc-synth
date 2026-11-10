@@ -466,7 +466,7 @@ int main(void)
         bad += check("the retired font weight is refused without a write", ed_ui_set(bold, sizeof bold) == 2);
     }
     {   /* MENU_SET (editor_menu.c): the same settings record, the same deferral, retry and idempotence */
-        const uint8_t leds_off[] = {4, 0, 64}, large_on[] = {2, 1, 64}, hold_06[] = {5, 3, 64}, eq_bass[] = {9, 2, 64};
+        const uint8_t leds_off[] = {4, 0, 64}, large_on[] = {2, 1, 64}, hold_06[] = {5, 5, 64}, eq_bass[] = {9, 2, 64};
         persist_t q;
         reset();
         settings_init();
@@ -482,10 +482,10 @@ int main(void)
         ed_repn = 0; ed_menu_handle(ED_MENU_SET, large_on, 3);
         ok = ed_rep[0] == 0 && (ui_prefs & PREF_LARGE);
         ed_repn = 0; ed_menu_handle(ED_MENU_SET, hold_06, 3);
-        ok &= ed_rep[0] == 0 && settings_hold == 3u;
+        ok &= ed_rep[0] == 0 && settings_hold == 5u;
         ed_repn = 0; ed_menu_handle(ED_MENU_SET, eq_bass, 3);
         ok &= ed_rep[0] == 0 && st_load(OBJ_SETTINGS, &q, sizeof q) == (int)sizeof q && q.lowcut == 2u &&
-              hold_from_stored(q.bold) == 3u && (q.favorites.factory[15][30] & PREF_LARGE) && leds_from_stored(q.zoom) == LEDS_OFF;
+              hold_from_stored(q.bold) == 5u && (q.favorites.factory[15][30] & PREF_LARGE) && leds_from_stored(q.zoom) == LEDS_OFF;
         bad += check("MENU_SET stopped: rc 0, saved at once (LARGE, HOLD, SPEAKER EQ), the others kept", ok);
         before = erases;
         ed_repn = 0; ed_menu_handle(ED_MENU_SET, hold_06, 3);

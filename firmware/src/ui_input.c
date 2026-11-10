@@ -362,7 +362,8 @@ static uint32_t key_leds(uint32_t *br)                 /* (*br: a layer's keys t
     if (br)
         *br = 0;
     c = name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds(br) : grid_on() ? grid_leds() :
-                 (fm1_in.notes & ~kb_layer) | play_leds() | step_leds();
+                 (fm1_in.notes & ~kb_layer) | play_leds() | step_leds() |
+                 (chord_flav_on(TSEL) ? (1u << MF_KEYS) - 1u : 0u);   /* (MRC: CHRD on, the flavor keys: chord.c) */
 #if FELUCCA_SLICE
     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
         c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
@@ -603,9 +604,10 @@ static int rec_tap(void)                                /* 1: the arming changed
         ui_message("KEYS WRITE STEPS");               /* step recording: stopped, at the cursor */
         return 1;
     }
+    /* stopped: armed only, the first key pressed starts the transport (see the key pass below) */
     if ((song.rec & bit) && !song.playing && !seq_counting())
-        transport_req = 1;
-    if ((song.rec & bit) && grid_on())
+        ui_message("KEY STARTS REC");
+    else if ((song.rec & bit) && grid_on())
         ui_message("LANE KEYS RECORD");               /* (the white keys stay the steps) */
     else if ((song.rec & bit) && !ui.home && cur_page()->graph == GR_ROLL)
         ui_message("KEYS RECORD LIVE");               /* (seq_entry pauses while armed and playing) */
@@ -1065,7 +1067,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
     *vp = (int16_t)v;
-    if (pg->scope != SC_GLOBAL) {
+    if (pg->scope != SC_GLOBAL || (vp >= TSEL->p && vp < TSEL->p + sizeof(TSEL->p) / sizeof(TSEL->p[0]))) {   /* (REVERB / CHORUS KNOB 4: a track's) */
         motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
         ml_knob(TSEL, (uint32_t)(vp - TSEL->p));        /* (MIDI LEARN: picked) */
     }
@@ -1176,7 +1178,7 @@ static void seq_entry(uint32_t pressed)
         int32_t r;
         uint16_t mask;
         uint32_t note, n, i, j;
-        if (!((pressed >> k) & 1u))
+        if (!((pressed >> k) & 1u) || (k < MF_KEYS && chord_flav_on(t)))   /* (MRC: a flavor key, chord.c) */
             continue;
         note = kb_map(t, k);
         if (note == KB_SILENT)
@@ -1201,7 +1203,7 @@ static void seq_entry(uint32_t pressed)
         }
         last_note = (uint8_t)note;
     }
-    if (ui.entry_open && !(fm1_in.notes & ~kb_layer)) {
+    if (ui.entry_open && !(fm1_in.notes & ~(kb_layer | kb_flav))) {   /* (a flavor held: not a note) */
         cursor_set(ui.cursor + 1);
     }
 }
@@ -1682,6 +1684,10 @@ static void ui_input(void)
     if (notes && slice_page_on())                       /* SLICES: a key picks the slice it plays */
         slice_keys_pick(notes);
 #endif
+    if (notes && ((song.rec >> song.sel) & 1u) && !song.playing && !seq_counting() && !transport_req &&
+        !chain_busy() && !roll_on())                    /* armed and stopped: the first key starts recording
+                                                         * (STEP's piano roll writes steps instead) */
+        transport_req = 1;
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
     if (song.grid) {
         grid_keys(notes);
@@ -1705,7 +1711,17 @@ static void ui_input(void)
     if (!lay && (s = panel_enc(EN_ALGO)) != 0)     /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
     if ((s = glo ? sel : panel_enc(EN_SELECT)) != 0) {   /* SELECT knob = global tempo; */
-        if (!glo && sel_mode() >= SEL_MODW) {         /* MENU > SELECT MODW / VEL (1.5.6, #84): it plays */
+        if (!glo && !ui.home && cur_page()->graph == GR_INS) {   /* MRC: on INSERT, its TYPE (whatever MENU > SELECT
+                                                         * says; the tempo stays GLO + SELECT). Not under a layer */
+            if (!lay && !kq) {
+                int32_t v = param_turn(&TP[P_ITYPE], TSEL->p[P_ITYPE], s > 0 ? 1 : -1);
+                if (v != TSEL->p[P_ITYPE]) {
+                    TSEL->p[P_ITYPE] = (int16_t)v;
+                    motion_capture(TSEL, P_ITYPE, v);
+                    ml_knob(TSEL, P_ITYPE);
+                }
+            }
+        } else if (!glo && sel_mode() >= SEL_MODW) {   /* MENU > SELECT MODW / VEL (1.5.6, #84): it plays */
             sel_play(sel_mode(), s);
         } else if (!glo && sel_mode() == SEL_PAGE) {   /* MENU > SELECT PAGE (1.5.5, #188): the pages, a detent
                                                          * each (ui.c page_turn); the tempo is GLO + SELECT, CLOCK's

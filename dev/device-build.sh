@@ -3,7 +3,7 @@
 #   wsl -d Ubuntu-24.04 -- sh dev/device-build.sh [build|test|all]      (default: all)
 # The Windows checkout has CRLF line endings (core.autocrlf), which break every .sh under Linux and the text
 # fixtures the tests read, so this mirrors the working tree -- uncommitted changes included -- into
-# ~/felucca-wsl with LF endings and works there. The Windows tree is only read. Results:
+# ~/felucca-wsl with LF endings and works there. The Windows tree is only read (but for build/felucca.fwsc). Results:
 #   ~/felucca-wsl/build/felucca.fwsc, felucca.bin, loader/ota.bin; the tests' PNGs and reports in build/ui_new.
 # Needs (once): Pillow and fontTools for python3, tools/get_toolchain.sh (~/.jieli/toolchain), the AC79 SDK in
 # ~/fw-AC79_AIoT_SDK (BUILDING.md), rsync. On Linux x86-64 the toolchain runs natively: no Docker.
@@ -19,7 +19,10 @@ grep -rlI --exclude-dir=.git "$(printf '\r')" "$DST" | while IFS= read -r f; do 
 cd "$DST"
 
 case "$what" in
-build|all) sh ./build.sh ;;
+build|all) sh ./build.sh
+           # the package back to the Windows tree's build/ (generated, git-ignored): the emulator's
+           # installer preview (dev/installer_preview.py) serves it at http://localhost:8790/installer/
+           mkdir -p "$SRC/build" && cp build/felucca.fwsc "$SRC/build/felucca.fwsc" ;;
 esac
 case "$what" in
 test|all) sh tests/run_tests.sh ;;

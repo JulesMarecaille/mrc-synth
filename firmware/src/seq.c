@@ -816,6 +816,40 @@ static void key_off(uint32_t k, track_t *t)
     }
 }
 
+/* MRC: a flavor key (chord.c) went down or up: every chord held on track tr changes under the finger. The notes it
+ * gains start, the ones it loses end, the ones it keeps ring on; a strum's notes still due come at once */
+static __attribute__((noinline)) void chord_revoice(uint32_t tr)
+{
+    track_t *t = &trk[tr % NTRK];
+    uint32_t k, i, j, n, on, mc = trk_midi_ch(tr % NTRK);
+    for (k = 0; k < 27u; k++) {
+        uint8_t nw[CHORD_MAX], old[CHORD_MAX];
+        if (!kb_chn[k] || kb_trk[k] != tr || kb_note[k] == KB_SILENT || ((kb_layer | kb_flav) >> k & 1u))
+            continue;
+        n = chord_build(t, kb_note[k], nw);
+        on = kb_chn[k];
+        memcpy(old, kb_chord[k], on);
+        kb_strum &= ~(1u << k);
+        kb_chn[k] = 0;                                  /* (midi_local_held: what the other keys hold) */
+        memcpy(kb_chord[k], nw, n);
+        for (i = 0; i < n; i++) {                       /* the notes it gains */
+            for (j = 0; j < on && old[j] != nw[i]; j++)
+                ;
+            if (j == on)
+                key_note(k, t, i);
+        }
+        kb_chn[k] = (uint8_t)n;
+        for (i = 0; i < on; i++) {                      /* the notes it loses */
+            for (j = 0; j < n && nw[j] != old[i]; j++)
+                ;
+            if (j == n && !midi_local_held(t, old[i])) {
+                input_off(t, old[i]);
+                midi_out_event(0x08u | (0x80u | mc) << 8 | (uint32_t)old[i] << 16);
+            }
+        }
+    }
+}
+
 #ifdef FM1_INPUT_LAT
 /* the press latency stats (bsp/boards/fm1/fm1_input.h fm1_in_stat, console `inp`): from the first scan that saw
  * key k closed to its note-on here, and to the note's first sample leaving the DMA (kb_out_tick:
@@ -877,7 +911,15 @@ static void keyboard_block(void)
                                                    * to edit and the white keys are its steps, so choosing KICK no
                                                    * longer fires it (upstream played the lane, grid_key_note) */
                 kb_note[k] = KB_SILENT;
-            else
+            else if (k < MF_KEYS && chord_flav_on(&trk[kb_trk[k]])) {   /* MRC: a flavor key (chord.c) */
+                kb_note[k] = KB_SILENT;
+                if (!kb_flav || flav_trk != kb_trk[k])
+                    kb_flav = 0;                          /* (another track's flavors held: they no longer count) */
+                flav_trk = kb_trk[k];
+                kb_flav |= 1u << k;
+                chord_revoice(kb_trk[k]);
+                continue;
+            } else
                 kb_note[k] = (uint8_t)kb_map(&trk[kb_trk[k]], k);
             if (kb_note[k] == KB_SILENT)
                 continue;
@@ -889,6 +931,11 @@ static void keyboard_block(void)
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
                 perf_key_press(k, 0);
+                continue;
+            }
+            if ((kb_flav >> k) & 1u) {            /* MRC: a flavor let go: the chords held change back */
+                kb_flav &= ~(1u << k);
+                chord_revoice(flav_trk);
                 continue;
             }
             if (kb_note[k] == KB_SILENT)

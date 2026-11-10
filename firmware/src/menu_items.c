@@ -128,7 +128,7 @@ static const menu_flag_t MENU_FLAGS[] = {
  * turned off from the firmware (no amp enable or mute line is known); the EQ reaches
  * the headphone / line out and USB audio too (one DAC, uac_tap reads the master) */
 static const char *const SPK_EQ[3] = {"FLAT", "LOWCUT", "BASS+"};
-static const char *const HOLD_N[4] = {"0.3 s", "0.4 s", "0.5 s", "0.6 s"};   /* (the editor's names; the menu draws its own) */
+static const char *const HOLD_NAME[HOLD_N] = {"0.1 s", "0.2 s", "0.3 s", "0.4 s", "0.5 s", "0.6 s"};   /* (the editor's names; the menu draws its own) */
 /* 1.1 (Discussion #131): the metronome (click.c) and the count-in (seq.c); ui.c ui_rec_prefs holds them */
 static const char *const CLICK_N[3] = {"OFF", "REC", "ON"};          /* REC: while a track is armed and playing */
 static const char *const CLKLVL_N[3] = {"LOW", "MID", "HIGH"};
@@ -182,7 +182,7 @@ static const char *const SELECT_N[SEL_N] = {"BPM", "PAGE", "MODW", "VEL"};
 static uint32_t menu_n(uint32_t row)
 {
     return row == MI_COLOR ? palette_n() : row == MI_LOWCUT || (row >= MI_CLICK && row <= MI_COUNTIN) ? 3u :
-           row == MI_HOLD ? 4u : row == MI_LEDS ? LEDS_ROWS : row == MI_SCROFF ? NELEM(SCROFF_N) :
+           row == MI_HOLD ? HOLD_N : row == MI_LEDS ? LEDS_ROWS : row == MI_SCROFF ? NELEM(SCROFF_N) :
            row == MI_TUNE ? TUNE_N : row == MI_MIDIIN ? NELEM(N_ROUTE) : MI_TCH(row) ? MCH_N : row == MI_ANIM ? 3u : row == MI_HOME ? HV_COUNT :
            row == MI_SELECT ? SEL_N : 2u;
 }
@@ -196,7 +196,7 @@ static uint32_t menu_get(uint32_t row)
     case MI_COLOR: return palette_cur();
     case MI_STYLE: return ui_style == ST_LINE;
     case MI_LOWCUT: return settings.lowcut % 3u;
-    case MI_HOLD: return settings_hold % 4u;
+    case MI_HOLD: return settings_hold % HOLD_N;
     case MI_SCROFF: return scr_get();
     case MI_ANIM: return ui_prefs & PREF_ANIM_OFF ? 1u : (ui_idle & 1u) ? 2u : 0u;
     case MI_HOME: return ui_home_view < HV_COUNT ? ui_home_view : HV_SCOPE;
@@ -222,7 +222,7 @@ static const char *menu_vname(uint32_t row, uint32_t v)
     case MI_COLOR: return palette_name(v);
     case MI_STYLE: return STYLE_N[v & 1u];
     case MI_LOWCUT: return SPK_EQ[v % 3u];
-    case MI_HOLD: return HOLD_N[v & 3u];
+    case MI_HOLD: return HOLD_NAME[v % HOLD_N];
     case MI_CLICK: return CLICK_N[v % 3u];
     case MI_CLKLVL: return CLKLVL_N[v % 3u];
     case MI_COUNTIN: return COUNTIN_N[v % 3u];

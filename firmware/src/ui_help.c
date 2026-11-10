@@ -22,8 +22,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"MOD", "[K1]SLOT[K2]SOURCE[K3]DEST"},
     {"FX", "[K1-4]SENDS[FX]HOLD: PERFORM"},
     {"SLICER", "[K1]ON[K2]PATTERN[FX]INSERT"},
-    {"INSERT", "[K1]TYPE[FX]DRY / WET"},
-    {"INSERT 2", "[K1]DRY / WET[FX]DLY"},
+    {"INSERT", "[SELECT]TYPE[K4]DRY / WET"},
     {"DLY", "[K1-4]ALL TRACKS[FX]REVERB"},
     {"REVERB", "[K1]ROOM SPRING HALL[FX]CHORUS"},
     {"CHORUS", "[K1-4]ALL TRACKS[FX]FX"},
@@ -76,6 +75,8 @@ static const char *help_page(void)
     t = cur_page()->title;
     if (sel_mode() != SEL_BPM && str_eq(t, "CLOCK"))   /* (1.5.5: SELECT steps the pages; 1.5.6: or plays) */
         return "[K1]TEMPO[GLO]HOLD: TAP";
+    if (str_eq(t, "FILTER") && cur_page()->fam == FAM_FX)   /* (MRC: the track FILTER; ANALOG's, FAM_EDIT, is the table's) */
+        return "[K1]LOW CUT[K2]HIGH CUT[K3]RES";
     for (i = 0; i < NELEM(HELP_PAGE); i++)
         if (str_eq(HELP_PAGE[i].title, t))
             return HELP_PAGE[i].hint;

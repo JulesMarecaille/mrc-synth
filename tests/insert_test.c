@@ -382,7 +382,7 @@ static void test_stored(void)
     motion_set_event(&trk[1], 3, P_IMIX, 77);
     motion_set_lock(&trk[2], 5, P_IA, 9);
     project_capture(&a);
-    ok = proj_pack(&st, &a) && st.raw[66] == P_COUNT && P_COUNT == 111u && proj_import(&b, &st, sizeof st) &&
+    ok = proj_pack(&st, &a) && st.raw[66] == P_COUNT && P_COUNT == 114u && proj_import(&b, &st, sizeof st) &&
          !memcmp(&a, &b, sizeof a);
     for (k = 0; k < NTRK; k++)
         ok &= b.t[k].p[P_ITYPE] == (int16_t)(k * 2u + 1u) && b.t[k].p[P_IMIX] == (int16_t)(100 + k) &&
@@ -402,20 +402,19 @@ static void test_stored(void)
     ok &= v[P_ITYPE] == 0 && v[P_IA] == 64 && v[P_IB] == 96 && v[P_IC] == 96 && v[P_IMIX] == 127 && v[P_SPRD] == trk[3].p[P_SPRD] &&
           v[P_E0] == 40 && v[P_E7] == 47;
     ck("user presets: 111 parameters kept; one of 104 (1.2 .. 1.4): the INSERT OFF, its engine values in place", ok);
-    /* the pages: INSERT and INSERT 2 after SLICER, the labels and values per TYPE */
+    /* the page: INSERT after SLICER (MRC: one page, A B C MIX; TYPE on SELECT), the labels and values per TYPE */
     {
-        uint32_t p, ps = 0, pi = 0, pi2 = 0, pd = 0;
+        uint32_t p, ps = 0, pi = 0, pd = 0;
         char val[16];
         const char *u;
         track_t *t = &trk[0];
         for (p = 0; p < NPAGES; p++) {
             if (str_eq(PAGES[p].title, "SLICER")) ps = p;
             if (str_eq(PAGES[p].title, "INSERT")) pi = p;
-            if (str_eq(PAGES[p].title, "INSERT 2")) pi2 = p;
             if (str_eq(PAGES[p].title, "DLY")) pd = p;
         }
-        ok = pi == ps + 1u && pi2 == pi + 1u && pd == pi2 + 1u && PAGES[pi].fam == FAM_FX && PAGES[pi].id[0] == P_ITYPE &&
-             PAGES[pi2].id[0] == P_IMIX;
+        ok = pi == ps + 1u && pd == pi + 2u &&   /* (MRC: the track FILTER between) */ PAGES[pi].fam == FAM_FX && PAGES[pi].id[0] == P_IA &&
+             PAGES[pi].id[3] == P_IMIX;
         set_ins(t, IT_CRUSH, 64, 96, 96, 127);
         ok &= str_eq(track_desc(t, P_IA)->label, "BITS") && str_eq(track_desc(t, P_IB)->label, "RATE") &&
               str_eq(track_desc(t, P_IC)->label, "LPF");
@@ -435,7 +434,7 @@ static void test_stored(void)
         ok &= str_eq(track_desc(t, P_IA)->label, "INS A") && str_eq(param_desc_of(0, P_IB)->label, "INS B");
         for (i = P_ITYPE; i <= P_IMIX; i++)
             ok &= motion_param(i) && !param_kept(i);
-        ck("pages: SLICER, INSERT (TYPE A B C), INSERT 2 (MIX), DLY; A B C named by TYPE; recordable; part of the sound", ok);
+        ck("pages: SLICER, INSERT (A B C MIX), DLY; A B C named by TYPE; recordable; part of the sound", ok);
     }
 }
 

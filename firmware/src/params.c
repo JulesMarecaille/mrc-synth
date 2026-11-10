@@ -40,7 +40,7 @@ static uint32_t esync_idx(int32_t v) { return (uint32_t)(v & 127) * ESYNC_N >> 7
 static const char *const N_QUANT[] = {"OFF", "SNAP", "WHITE", "SEQ", "SEQ+T"};
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
 static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"};
-static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
+static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT", "LEAD"};   /* VC_CLOSE .. VC_LEAD */
 static const char *const N_VOICE[] = {"POLY", "MONO", "LEG", "UNI"};   /* V_POLY .. V_UNISON */
 static const char *const N_GLMODE[] = {"RATE", "TIME"};
 static const char *const N_PRIO[] = {"LAST", "LOW", "HIGH"};
@@ -168,6 +168,9 @@ static const param_desc_t TP[P_COUNT] = {
     [P_IMIX] = PD("MIX", F_PCT, 0, 127, 127),
     [P_FTYPE] = PE("TYPE", N_FTYPE, 0),           /* 1.5 (#104): ANALOG's filter, LP = as before (eng_analog.c) */
     [P_ESYNC] = PE("ESYNC", N_ONOFF, 0),          /* 1.5 (#175): OFF = ATK DEC REL in ms, as before (voice.c esync) */
+    [P_TLC] = PD("LCUT", F_CUTOFF, 0, 127, 0),     /* MRC: the track FILTER (fx.c track_filter): LOW CUT 0 OFF, */
+    [P_THC] = PD("HCUT", F_CUTOFF, 0, 127, 127),   /* HIGH CUT 127 OFF (param_format): both OFF = as before */
+    [P_TRES] = PD("RES", F_PCT, 0, 127, 0),        /* .. their resonance (ANALOG's: Q 0.5 .. ~6.7) */
 };
 
 /* the INSERT's A B C as its TYPE means them (TP's ranges and defaults): the drives DRIVE TONE LEVEL, CRUSH BITS RATE
@@ -370,6 +373,10 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
     }
     case F_CUTOFF: {
         uint32_t h = CUTOFF_HZ[v & 127];
+        if ((d == &TP[P_TLC] && v <= 0) || (d == &TP[P_THC] && v >= 127)) {   /* MRC: the track FILTER's ends */
+            str_cpy(val, "OFF", 6);
+            break;
+        }
         if (h < 1000u) {
             fmt_int(val, (int32_t)h);
             *unit = "Hz";
@@ -437,7 +444,7 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_PSAVE, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_CHO, GR_DLY, GR_REV, GR_VOICE, GR_CLOCK, GR_LANES, GR_EDEST };   /* (GR_EDEST: MRC, ENV DEST's routing; GR_LANES: MRC, a DRUM track's kit, each piece at its lane's level; GR_CHO: MRC, CHORUS's orbits; GR_DLY: MRC, DLY's bouncing ball; GR_REV: MRC, REVERB's three drawings; GR_VOICE: MRC, the VOICE pages' arc; GR_CLOCK: MRC, CLOCK's metronome and its KNOB 4 CLICK; GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_CHO, GR_DLY, GR_REV, GR_VOICE, GR_CLOCK, GR_LANES, GR_EDEST, GR_TFLT };   /* (GR_EDEST: MRC, ENV DEST's routing; GR_LANES: MRC, a DRUM track's kit, each piece at its lane's level; GR_CHO: MRC, CHORUS's orbits; GR_DLY: MRC, DLY's bouncing ball; GR_REV: MRC, REVERB's three drawings; GR_VOICE: MRC, the VOICE pages' arc; GR_CLOCK: MRC, CLOCK's metronome and its KNOB 4 CLICK; GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
 
 typedef struct {
     const char *title;
@@ -455,11 +462,14 @@ static const page_t PAGES[] = {
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"FX", FAM_FX, SC_TRACK, GR_FX, {P_DIST, P_CHOR, P_DLY, P_REV}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
-    {"INSERT", FAM_FX, SC_TRACK, GR_INS, {P_ITYPE, P_IA, P_IB, P_IC}},   /* 1.5: the track's INSERT (fx.c) */
-    {"INSERT 2", FAM_FX, SC_TRACK, GR_INS, {P_IMIX, 0xFF, 0xFF, 0xFF}},  /* .. its dry / wet */
-    {"DLY", FAM_FX, SC_GLOBAL, GR_DLY, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
-    {"REVERB", FAM_FX, SC_GLOBAL, GR_REV, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING / HALL */
-    {"CHORUS", FAM_FX, SC_GLOBAL, GR_CHO, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
+    {"INSERT", FAM_FX, SC_TRACK, GR_INS, {P_IA, P_IB, P_IC, P_IMIX}},   /* 1.5: the track's INSERT (fx.c). MRC: one
+                                                                       * page, TYPE on SELECT (ui_input.c), its name in
+                                                                       * the panel (ui_graph.c graph_insert) */
+    {"FILTER", FAM_FX, SC_TRACK, GR_TFLT, {P_TLC, P_THC, P_TRES, 0xFF}},   /* MRC: the track FILTER (fx.c
+                                                                             * track_filter), after the INSERT */
+    {"DLY", FAM_FX, SC_GLOBAL, GR_DLY, {G_DTIME, G_DFDBK, G_DCOLOR, P_DLY}},   /* KNOB 4: the track's DLY (page_desc); G_DMIX is no page's, fx.c fixes it */
+    {"REVERB", FAM_FX, SC_GLOBAL, GR_REV, {G_RTYPE, G_RSIZE, G_RDAMP, P_REV}},   /* TYPE: ROOM / SPRING / HALL; KNOB 4: the track's REV (page_desc) */
+    {"CHORUS", FAM_FX, SC_GLOBAL, GR_CHO, {G_CRATE, G_CDEPTH, 0xFF, P_CHOR}},   /* KNOB 4: the track's CHO */
     {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, {P_CHRD, P_VOIC, P_STRM, 0xFF}},   /* MRC: SCL's first page, the chord keys; KNOB 3 their strum */
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},   /* SCL again (chord.c reads both) */
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
@@ -516,6 +526,12 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (pg->scope == SC_STEP || pg->scope == SC_TRK) {
         *valp = 0;
         return 0;
+    }
+    if (pg->scope == SC_GLOBAL && slot == 3u && (pg->graph == GR_REV || pg->graph == GR_CHO || pg->graph == GR_DLY)) {
+        /* MRC: KNOB 4 of REVERB / CHORUS / DLY is the track's own send, the FX page's REV / CHO / DLY (id holds the track param) */
+        id = pg->graph == GR_REV ? P_REV : pg->graph == GR_DLY ? P_DLY : P_CHOR;
+        *valp = &TSEL->p[id];
+        return track_desc(TSEL, id);
     }
     if (pg->scope == SC_GLOBAL) {
         *valp = &song.g[id];

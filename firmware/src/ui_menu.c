@@ -314,7 +314,7 @@ static void menu_row(uint32_t k, uint32_t row)
     }
     if (row == MI_HOLD || row == MI_TUNE) {            /* "0.4" s, "+12" ct: the value and its unit */
         char b[8] = "0.4";
-        b[2] = (char)('0' + HOLD_MS[settings_hold % 4u] / 100u);
+        b[2] = (char)('0' + HOLD_MS[settings_hold % HOLD_N] / 100u);
         GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "menu row value centred up/down");
         GFX_HOOK_ALIGN(0, 0, 0, vy + AF_M.asc, AL_B, "menu row unit on its value's baseline");
         cv_text_r(cv_text_r(MR_VR, vy + AF_M.asc - AF_S.asc, &AF_S, row == MI_TUNE ? "ct" : "s", sel ? T_INK : T_MID, bg) - 3,

@@ -77,6 +77,7 @@ static __attribute__((noinline)) int c1_wait(void) { return fm1_cpu1_wait(); }  
 
 /* ----------------------------------------------------- base, display --- */
 #include "../bsp/chip/libc.c"
+#include "div64.c"               /* MRC: __udivdi3, __divdi3 (no compiler runtime is linked) */
 #include "lcd.c"
 #include "gfx.c"
 

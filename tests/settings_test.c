@@ -87,15 +87,16 @@ int main(void)
         assert(settings_import(&p, sizeof p) == 1 && settings_hold == HOLD_DEF && HOLD_MS[settings_hold] == 400u);
         p = original;
         assert(settings_import(&p, sizeof p) == 1 && settings_hold == HOLD_DEF);
-        settings_hold = 3;
+        settings_hold = 5;
         settings_export(&p);
         assert(hold_stored_ok(p.bold) && p.bold != 1u);
         settings_hold = 0;
-        assert(settings_import(&p, sizeof p) == 1 && settings_hold == 3u && HOLD_MS[settings_hold] == 600u);
+        assert(settings_import(&p, sizeof p) == 1 && settings_hold == 5u && HOLD_MS[settings_hold] == 600u);
         settings_hold = HOLD_DEF;
         settings_export(&p);
         assert(p.bold == 0u && settings_import(&p, sizeof p) == 1 && settings_hold == HOLD_DEF);
-        assert(!hold_stored_ok(2u) && !hold_stored_ok(HOLD_TAG + 4u) && hold_stored_ok(HOLD_TAG | 2u));
+        assert(!hold_stored_ok(2u) && !hold_stored_ok(HOLD_TAG + 4u) && hold_stored_ok(HOLD_TAG | 2u) &&
+               hold_stored_ok(HOLD_TAG2 | 5u) && !hold_stored_ok(HOLD_TAG2 | 6u) && hold_from_stored(HOLD_TAG | 0u) == 2u);
         p = original; p.magic = 0x50455231u;
         memcpy((uint8_t *)&p + 8, &PANEL_DEFAULT, sizeof(panel_t));
         settings_hold = 2;
