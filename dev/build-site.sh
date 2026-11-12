@@ -28,7 +28,7 @@ fi
 sh dev/build-emu.sh
 ls build/emu/firmware/*.fwsc >/dev/null 2>&1 || { echo "dev/build-site.sh: the installer has no package"; exit 1; }
 
-SITE="index.html felucca.wasm worklet.js editor installer firmware fonts .nojekyll"
+SITE="index.html felucca.wasm worklet.js editor remote installer firmware fonts .nojekyll"
 for p in $SITE; do rm -rf "docs/$p"; done
 mkdir -p docs
 cp -R build/emu/. docs/

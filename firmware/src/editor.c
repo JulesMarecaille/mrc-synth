@@ -18,7 +18,8 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_TRACK, ED_TRACK_MIX, ED_TRACK_DUMP, ED_TRACK_STEP,                    /* v3: tracks */
        ED_TRACK_PARAM, ED_TRACK_CHANGED, ED_SONG,
        ED_UI_STATE, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET,
-       ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT };                              /* v6: song chain */
+       ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT };
+enum { ED_PERFORM = 82 };                       /* MRC: the phone remote (remote.c) */                              /* v6: song chain */
 
 #define ED_SONG_SILENT 127u                     /* MRC: SONG's "-" on the wire (CHAIN_SILENT is no 7-bit byte) */
 static uint8_t ed_out[664] __attribute__((section(".pool")));   /* (MOTION op 8: 128 records and their kinds, 653 bytes) */
@@ -446,6 +447,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_menu_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_learn_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_palette_handle(cmd, a, na)) { ed_send(); return; }
+    if (cmd == ED_PERFORM) {
+        uint32_t m = rmt_handle(a, na, ed_out + ed_n, sizeof ed_out - 1u - ed_n);
+        if (m) { ed_n += m; ed_send(); }
+        return;
+    }
     switch (cmd) {
     case ED_MOTION: {
         track_t *t = &trk[a[0]]; uint32_t rc = 0;
@@ -885,6 +891,7 @@ static void ed_service(void)
     const uint8_t *p;
     uint32_t n;
     ed_sync();                                             /* v2 pushes (while watched) */
+    rmt_service();                                         /* MRC: a quiet phone remote lets go */
     if (!ota_frame_get(&p, &n) || n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
         return;
     ed_w.last_ms = fm1_ms;                                 /* any request keeps WATCH alive */

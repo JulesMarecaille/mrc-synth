@@ -121,6 +121,7 @@ static __attribute__((noinline)) int c1_wait(void) { return fm1_cpu1_wait(); }  
 #if FELUCCA_OTA
 #include "../bsp/chip/ota.c"
 #include "ota_hw.c"
+#include "remote.c"              /* MRC: the phone remote (editor.c ED_PERFORM) */
 #include "editor.c"              /* web editor SysEx (needs the OTA SysEx plumbing) */
 #endif
 #if FELUCCA_CDC

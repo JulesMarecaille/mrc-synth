@@ -93,6 +93,13 @@ if (typeof registerProcessor === "function") {
       else if (m.type === "master") ex.web_master(m.value | 0);
       else if (m.type === "midi") ex.web_midi(m.data[0] | 0, m.data[1] | 0, m.data[2] | 0);
       else if (m.type === "visible") this.period = m.on ? 1 / 30 : 1 / 4;
+      else if (m.type === "remote" && ex.web_remote) {  // MRC: the phone remote's SysEx (remote.html, via the page)
+        const d = m.data || [], buf = new Uint8Array(ex.memory.buffer, ex.web_remote_buf(), 256);
+        if (d.length > 256) return;
+        buf.set(d);
+        const n = ex.web_remote(d.length);
+        if (n) this.port.postMessage({ type: "remote", data: Array.from(buf.subarray(0, n)) });
+      }
     }
 
     publish() {

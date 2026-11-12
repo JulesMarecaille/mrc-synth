@@ -266,6 +266,7 @@ footer nav a:hover { color: var(--a2); }
     <nav>
       <a class="opt" href="#emulator">Emulator</a>
       <a class="opt" href="editor/">Editor</a>
+      <a class="opt" href="remote/">Remote</a>
       <a class="btn primary small" href="installer/">Install <span class="arrow" aria-hidden="true">→</span></a>
     </nav>
   </div>
@@ -347,6 +348,11 @@ footer nav a:hover { color: var(--a2); }
           <a class="btn ghost" href="editor/?mock=1">Try it without a device</a>
         </div>
         <p class="note">CHROME OR EDGE · USB MIDI</p>
+        <p class="lede" style="margin-top:22px">On stage, plug your Android phone in instead: punch-in effects, macros, solos, mutes and drum lanes under your thumbs.</p>
+        <div class="ctas">
+          <a class="btn ghost" href="remote/">Open the phone remote <span class="arrow" aria-hidden="true">→</span></a>
+        </div>
+        <p class="note">ANDROID CHROME · USB OTG · OR THIS EMULATOR IN ANOTHER TAB</p>
       </div>
       <div class="mock" aria-hidden="true">
         <!-- GRAIN's screen (firmware/src/ui_graph.c graph_grain): a saucer beaming up a cow, GN_COW's outline in px -->
@@ -411,7 +417,7 @@ footer nav a:hover { color: var(--a2); }
       <p><small>Fonts: DotGothic16 (<a href="fonts/OFL.txt">SIL OFL 1.1</a>), Inter Tight (<a href="fonts/OFL-InterTight.txt">SIL OFL 1.1</a>). Icons: Fukiai by Hügelton Instruments (<a href="fonts/FUKIAI-LICENSE.txt">MIT</a>).<br>
       M-VAVE and FM-1 are trademarks of their respective owners. MRC Synth is not affiliated with or endorsed by them.</small></p>
     </div>
-    <nav><a href="editor/">Editor</a><a href="installer/">Installer</a><a href="https://github.com/JulesMarecaille/mrc-synth">Source</a></nav>
+    <nav><a href="editor/">Editor</a><a href="remote/">Remote</a><a href="installer/">Installer</a><a href="https://github.com/JulesMarecaille/mrc-synth">Source</a></nav>
   </div>
 </footer>
 
@@ -523,6 +529,7 @@ angle.MASTER = -135 + 270 * masterValue / 1023;
 const knobs = [], buttons = [], keys = [];
 const btnBy = new Map(), keyBy = new Map();                   // pointer / key code -> label bit or key
 const send = (m) => { if (node) node.port.postMessage(m); };
+let remoteBus = null;   // MRC: BroadcastChannel to remote.html
 
 function build(name) {
   const L = LAYOUTS[name];
@@ -896,6 +903,7 @@ async function switchOn() {
         const m = e.data;
         if (m.type === "ready") res();
         else if (m.type === "error") rej(new Error(m.message));
+        else if (m.type === "remote") { if (remoteBus) remoteBus.postMessage({ r: m.data }); }
         else if (m.type === "frame") {
           if (m.fb) drawScreen(m.fb);
           if (m.leds) drawLights(lastLeds = m.leds, m.anim);
@@ -908,6 +916,11 @@ async function switchOn() {
       node.port.postMessage({ type: "load", wasm, sectors: loadFlash(), master: masterValue }, [wasm]);
     });
     await ac.resume();
+    // MRC: the phone remote (remote.html) in another tab of this origin talks to this one as it would to the FM-1
+    if (typeof BroadcastChannel === "function" && !remoteBus) {
+      remoteBus = new BroadcastChannel("mrc-remote");
+      remoteBus.onmessage = (e) => { if (e.data && Array.isArray(e.data.q)) send({ type: "remote", data: e.data.q }); };
+    }
     document.getElementById("start").hidden = true;
     golabel.textContent = "On";
     if (ac.sampleRate !== 44100) console.warn(`MRC Synth: the browser plays at ${ac.sampleRate} Hz, the pitch is off by ${(1200 * Math.log2(ac.sampleRate / 44100)).toFixed(0)} cents.`);

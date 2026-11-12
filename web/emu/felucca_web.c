@@ -283,6 +283,8 @@ static void web_power_on(void)
     web_booted = 1;
 }
 
+#include "../../firmware/src/remote.c"   /* MRC: the phone remote (web_remote below; on the device editor.c ED_PERFORM) */
+
 /* one pass of main.c fm1_main's loop (what the browser has: no USB, editor, UBOOT, console) */
 static void web_frame(void)
 {
@@ -292,6 +294,7 @@ static void web_frame(void)
     master_poll();
     felucca_dbg.ui_frames++;
     ui_input();
+    rmt_service();
     settings_poll();
     autosave_poll();
     ui_leds();
@@ -499,6 +502,24 @@ EXPORT uint32_t web_test_user_preset(uint32_t i) { return (uint32_t)up_used(i); 
 
 EXPORT uint16_t *web_screen(void) { return web_fb; }
 EXPORT uint32_t web_screen_draws(void) { return web_draws; }
+/* MRC: the phone remote's SysEx frame (F0 7D 46 4C 52 .. F7, as editor.c takes it) in web_remote_buf; the reply
+ * frame in its place, its length returned (0: not one) */
+static uint8_t web_rmt[256];
+EXPORT uint8_t *web_remote_buf(void) { return web_rmt; }
+EXPORT uint32_t web_remote(uint32_t n)
+{
+    static uint8_t a[64];
+    uint32_t i, m;
+    if (n < 7u || n > sizeof a + 6u || web_rmt[0] != 0xF0u || web_rmt[1] != 0x7Du || web_rmt[2] != 0x46u ||
+        web_rmt[3] != 0x4Cu || web_rmt[4] != 82u || web_rmt[n - 1u] != 0xF7u)
+        return 0;
+    for (i = 0; i < n - 6u; i++)
+        a[i] = web_rmt[5u + i];
+    if (!(m = rmt_handle(a, n - 6u, web_rmt + 5, sizeof web_rmt - 6u)))
+        return 0;
+    web_rmt[5u + m] = 0xF7u;
+    return m + 6u;
+}
 EXPORT uint32_t web_now_ms(void) { return fm1_ms; }
 EXPORT uint32_t web_playing(void) { return song.playing; }
 EXPORT uint32_t web_sample_rate(void) { return FS; }

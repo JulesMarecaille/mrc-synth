@@ -836,11 +836,11 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 /* --------------------------------------------------------- the LEDs --- */
 /* lit = in effect now (held, the value, a track sounding), breathing = can be pressed (*br: dark .. ~60 % and
  * back, ~1.1 s, bsp/boards/fm1/fm1_input.h fm1_led_breath; was a hard 250 ms blink, #119), dark = nothing there */
-static int glo_sounding(uint32_t t) { return !trk[t].p[P_MUTE] && (!perf_solo || ((perf_solo >> t) & 1u)); }
+static int glo_sounding(uint32_t t) { uint32_t s = perf_solo | perf_rsolo; return !trk[t].p[P_MUTE] && (!s || ((s >> t) & 1u)); }
 static int rec_clearable(void) { return !seq_is_empty(TSEL) || motion_count(TSEL) != 0u; }
 static uint32_t layer_leds(uint32_t *br)
 {
-    uint32_t k, m = 0, n = 0, l = ui.layer, held = perf_held | perf_latched, ok = perf_avail();
+    uint32_t k, m = 0, n = 0, l = ui.layer, held = perf_held | perf_latched | perf_rmt, ok = perf_avail();
     uint32_t mask = scale_mask(TSEL), root = (uint32_t)TSEL->p[P_ROOT] % 12u;
     const eqa_t *a;
     for (k = 0; k < 27u; k++) {
@@ -987,7 +987,7 @@ static void bnote(char *n, uint32_t t) { n[0] = B_NOTE[t]; n[1] = '#'; n[2] = 0;
 
 static void layer_fx(void)
 {
-    uint32_t held = perf_kill ? 0u : perf_held | perf_latched, act = perf_act, ok = perf_avail(), p, e, st;
+    uint32_t held = perf_kill ? 0u : perf_held | perf_latched | perf_rmt, act = perf_act, ok = perf_avail(), p, e, st;
     uint32_t ed = fx_key_held() ? key_place(fx_key_held() - 1u) : PF_KEYS;
     char n[3] = {0, 0, 0};
     for (p = 0; p < PF_KEYS; p++) {                     /* the white keys F3 .. G5, 4 a row: the effect each holds */
@@ -1010,7 +1010,7 @@ static void layer_glo(void)
     char n[3] = {0, 0, 0};
     for (e = 0; e < NTRK; e++) {                        /* F3 .. B3: SOLO while held */
         n[0] = W_NOTE[e];
-        lcell(LC_X(e), 4, LC_H, n, trk_icon(e, 0), 0, "SOLO", (perf_solo >> e) & 1u ? LS_HELD : LS_OFF, 1);
+        lcell(LC_X(e), 4, LC_H, n, trk_icon(e, 0), 0, "SOLO", ((perf_solo | perf_rsolo) >> e) & 1u ? LS_HELD : LS_OFF, 1);
     }
     n[0] = 'C';
     lcell(LC_X(0), 50, LC_H, n, ICON_MUTE, 0, "ALL", LS_OFF, 0);   /* (unmute all) */
@@ -1244,13 +1244,13 @@ static void draw_layer(void)
     if (l == LAYER_FX)
     {
         uint32_t p;
-        sig += (perf_kill ? 0u : perf_held | perf_latched) * 31u + perf_latch_on * 11u + perf_act * 131u + perf_avail() * 7u + (uint32_t)perf_harm_on() * 3u +
+        sig += (perf_kill ? 0u : perf_held | perf_latched | perf_rmt) * 31u + perf_latch_on * 11u + perf_act * 131u + perf_avail() * 7u + (uint32_t)perf_harm_on() * 3u +
                fx_key_held() * 4099u;
         for (p = 0; p < PF_KEYS; p++)                   /* (the key map) */
             sig = sig * 33u + perf_map[p];
     }
     else if (l == LAYER_GLO)
-        sig += perf_solo * 31u + (uint32_t)song.g[G_CLOCK] * 5u + ui.ml.on * 7u + seq_fill * 1009u +
+        sig += (perf_solo | perf_rsolo) * 31u + (uint32_t)song.g[G_CLOCK] * 5u + ui.ml.on * 7u + seq_fill * 1009u +
                (uint32_t)(trk[0].p[P_MUTE] | trk[1].p[P_MUTE] << 1 | trk[2].p[P_MUTE] << 2 | trk[3].p[P_MUTE] << 3) * 131u;
     else if (l == LAYER_SCL)
         sig += (uint32_t)TSEL->p[P_SCALE] * 31u;

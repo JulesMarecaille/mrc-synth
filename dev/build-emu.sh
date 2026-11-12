@@ -30,5 +30,8 @@ cp web/fukiai.ttf web/FUKIAI-LICENSE.txt web/fm1backup.js build/emu/editor/
 cp web/fukiai.ttf web/FUKIAI-LICENSE.txt build/emu/fonts/
 cp "assets/fonts/InterTight[wght].ttf" build/emu/fonts/InterTight.ttf
 cp LICENSES/OFL-InterTight.txt build/emu/fonts/OFL-InterTight.txt
-echo "emu: build/emu/editor (the editor), build/emu/fonts (Inter Tight, Fukiai)"
+# MRC: the phone remote (build/emu/remote/): same origin as the emulator, which it can drive from another tab
+mkdir -p build/emu/remote
+cp web/remote.html build/emu/remote/index.html
+echo "emu: build/emu/editor (the editor), build/emu/remote (the phone remote), build/emu/fonts (Inter Tight, Fukiai)"
 "$PY" dev/installer_preview.py

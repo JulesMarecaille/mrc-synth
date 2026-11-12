@@ -65,6 +65,7 @@ static int st_read(uint32_t off, void *p, uint32_t n) { (void)off; (void)p; (voi
 static int st_prog(uint32_t off, const void *p, uint32_t n) { (void)off; (void)p; (void)n; return -1; }
 static int st_erase(uint32_t off) { (void)off; return -1; }
 #include "../firmware/src/storage.c"
+#include "../firmware/src/remote.c"     /* MRC: editor.c ED_PERFORM */
 #include "../firmware/src/editor.c"
 
 static int check(const char *what, int ok)
