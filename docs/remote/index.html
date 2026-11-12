@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-only
-     MRC: the phone remote. The FX layer's effects (held or latched), its four macros, the solos, the track mutes
-     and the DRUM lanes' mutes, over the editor's SysEx: F0 7D 46 4C 52 op .. F7 (firmware/src/remote.c).
+     MRC: the phone remote. The FX layer's effects (held or latched), its four macros, the solos, the track mutes,
+     the DRUM lanes' mutes, the selected track and its sound's eight EDIT values, over the editor's SysEx: F0 7D 46 4C 52 op .. F7 (firmware/src/remote.c).
      The FM-1 through Web MIDI (Android Chrome, the phone plugged in with a USB OTG cable), or the emulator in
      another tab of this site (BroadcastChannel "mrc-remote", web/emu/index.html). -->
 <html lang="en">
@@ -80,25 +80,46 @@ button { font: inherit; color: inherit; border: 0; background: none; padding: 0;
 .lset { display: grid; grid-template-rows: auto 1fr; gap: 4px; min-height: 0; }
 .lset > span { font-size: 10px; letter-spacing: .14em; color: var(--dim); font-weight: 800; padding-left: 2px; }
 .lanes { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: var(--gap); min-height: 0; }
-.lane { border-radius: var(--r); background: var(--a3); color: var(--ink); font-weight: 800; font-size: 12px; letter-spacing: .06em; touch-action: none; }
+.lane { border-radius: var(--r); background: var(--c); color: var(--ink); font-weight: 800; font-size: 12px; letter-spacing: .06em; touch-action: none; }
 .lane.off { background: var(--surf); color: var(--faint); text-decoration: line-through; }
 .empty { place-self: center; color: var(--dim); text-align: center; font-size: 13px; line-height: 1.5; }
 
-/* bottom: the four tracks' SOLO and MUTE */
+/* EDIT: the selected track's eight EDIT values */
+#p-edit { grid-template-rows: auto 1fr; gap: var(--gap); }
+.ehead { display: flex; align-items: baseline; gap: 8px; padding: 0 2px; font-size: 12px; }
+.ehead b { font-weight: 800; color: var(--a2); }
+.ehead span { color: var(--dim); font-size: 10px; letter-spacing: .12em; font-weight: 800; }
+.egrid { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: var(--gap); min-height: 0; }
+.egrid .fader { padding: 8px 6px 10px; gap: 6px; }
+.egrid .fader label, .egrid .fader output { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.egrid .fader output { font-size: 12px; }
+.fader.na { opacity: .25; pointer-events: none; }
+
+/* bottom: the four tracks' SELECT, SOLO and MUTE */
 .tracks { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap); }
 /* upright: a column per track, MUTE above SOLO, both tall for the thumb */
 .trk { background: var(--bg); border-radius: var(--r); padding: 6px; display: grid; grid-template-columns: 1fr; gap: 6px; }
 .trk .nm { order: 0; }
-.trk .mute { order: 1; }
-.trk .solo { order: 2; }
+.trk .sel { order: 1; }
+.trk .mute { order: 2; }
+.trk .solo { order: 3; }
 .trk .nm { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; padding: 1px 3px 0; font-size: 11px; }
 .trk .nm b { font-weight: 800; }
 .trk .nm span { color: var(--dim); font-size: 9px; letter-spacing: .08em; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trk.silent .nm { opacity: .4; }
 .tb { height: 58px; border-radius: 10px; background: var(--surf); font-size: 10px; font-weight: 800; letter-spacing: .1em; color: var(--dim); touch-action: none; }
-.tb.solo.on { background: var(--a1); color: var(--ink); }
-.tb.solo.dev { box-shadow: inset 0 0 0 2px var(--a1); color: var(--a1); }
-.tb.mute.on { background: var(--a4); color: var(--ink); }
+.tb.solo.on { background: var(--mint); color: var(--ink); }
+.tb.solo.dev { box-shadow: inset 0 0 0 2px var(--mint); color: var(--mint); }
+/* the sound button: lit while the track sounds, dark (crossed speaker) while it is muted */
+.tb.mute { display: grid; place-items: center; }
+.tb.mute svg { width: 22px; height: 22px; }
+.tb.mute .x { display: none; }
+.tb.mute.off .x { display: inline; }
+.tb.mute.off .w { display: none; }
+.tb.mute.on { background: var(--mint); color: var(--ink); }
+.tb.sel { height: 48px; }
+.tb.sel.on { background: var(--mint); color: var(--ink); }
+.tb.na { opacity: .3; }
 
 /* settings: a sheet over everything */
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; align-items: flex-end; justify-content: center; z-index: 9; }
@@ -136,16 +157,19 @@ button { font: inherit; color: inherit; border: 0; background: none; padding: 0;
   .tab { height: 30px; }
   .gear { width: 38px; height: 38px; }
   #p-punch { grid-template-columns: repeat(8, 1fr); }
+  .egrid { grid-template-columns: repeat(8, 1fr); }
   .lanes { grid-template-columns: repeat(8, 1fr); }
-  .trk { grid-template-columns: auto 1fr 1fr; align-items: center; padding: 5px; }
-  .trk .nm { grid-column: 1; flex-direction: column; align-items: flex-start; gap: 1px; padding: 0 4px; min-width: 0; max-width: 64px; }
+  .trk { grid-template-columns: auto 1fr 1fr; align-items: center; padding: 5px; row-gap: 5px; }
+  .trk .nm { grid-column: 1; grid-row: 1 / 3; flex-direction: column; align-items: flex-start; gap: 1px; padding: 0 4px; min-width: 0; max-width: 64px; }
   .tb { height: 46px; }
-  .trk .solo { order: 1; }                         /* sideways: SOLO then MUTE, side by side */
+  .trk .sel { grid-column: 2 / 4; height: 36px; }   /* sideways: SELECT over MUTE and SOLO, side by side */
+  .trk .solo { order: 3; }
   .trk .mute { order: 2; }
   .pad { padding: 8px; font-size: 12px; }
 }
 @media (orientation: landscape) and (max-height: 360px) {
   .tb { height: 40px; }
+  .trk .sel { height: 30px; }
   .pad small { display: none; }
 }
 </style>
@@ -157,6 +181,7 @@ button { font: inherit; color: inherit; border: 0; background: none; padding: 0;
       <button class="tab on" data-p="punch">PUNCH IN</button>
       <button class="tab" data-p="fx">EFFECTS</button>
       <button class="tab" data-p="drums">DRUMS</button>
+      <button class="tab" data-p="edit">EDIT</button>
     </div>
     <button class="gear" id="gear" aria-label="Settings"><i id="dot"></i>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -167,6 +192,7 @@ button { font: inherit; color: inherit; border: 0; background: none; padding: 0;
     <div class="pane on" id="p-punch"></div>
     <div class="pane" id="p-fx"></div>
     <div class="pane" id="p-drums"></div>
+    <div class="pane" id="p-edit"><div class="ehead" id="ehead"></div><div class="egrid" id="egrid"></div></div>
   </div>
 
   <div class="tracks" id="tracks"></div>
@@ -233,6 +259,7 @@ let lastReply = 0, pollTimer = 0;
 let st = null;               /* the device's state, the last reply */
 let names = {};              /* track -> lane names (op 7) */
 let namesAsked = 0;
+let edesc = null;            /* the selected track's EDIT values: [{ label, min, max }] (op 10) */
 const pendingNames = [];
 
 function frame(op, ...args) { return [...HDR, op, ...args.map((v) => v & 127), 0xF7]; }
@@ -268,6 +295,18 @@ function onReply(d) {
     for (let l = 0; l < 8; l++) { let n = ""; while (i < r.length && r[i]) n += String.fromCharCode(r[i++]); i++; list.push(n); }
     if (t !== undefined) names[t] = list;
   }
+  /* the sound block (op 8..10's firmware; none from an older one): the selected track, its EDIT values */
+  const str = () => { let n = ""; while (i < r.length && r[i]) n += String.fromCharCode(r[i++]); i++; return n; };
+  if (i + 2 <= r.length) {
+    s.sel = b(); s.seng = b();
+    s.ev = []; s.et = [];
+    for (let k = 0; k < 8; k++) { s.ev.push(w() - 8192); s.et.push(str()); }
+    if (s.op === 10 && !s.rc && i < r.length) {
+      const d = [];
+      for (let k = 0; k < 8; k++) { const label = str(), min = w() - 8192, max = w() - 8192; d.push({ label, min, max }); }
+      edesc = d;
+    }
+  }
   st = s;
   render();
 }
@@ -278,7 +317,7 @@ function poll() {
   if (lastReply && now - lastReply > 1200)
     say(link.kind === "emu" ? "The emulator is not answering" : "The FM-1 is not answering", "warn");
   else if (lastReply) say(link.kind === "emu" ? "Connected to the emulator" : "Connected to the FM-1", "on");
-  send(0);
+  send(10);                                     /* the query, with the EDIT values' labels and ranges */
   if (st && now - namesAsked > 3000) {          /* the KIT can change the lanes' names */
     namesAsked = now;
     st.trk.forEach((t, k) => { if (t.drum) { pendingNames.push(k); send(7, k); } });
@@ -286,7 +325,7 @@ function poll() {
 }
 function start(l) {
   if (link) link.close();
-  link = l; lastReply = 0; st = null; names = {}; namesAsked = 0; pendingNames.length = 0;
+  link = l; lastReply = 0; st = null; names = {}; namesAsked = 0; pendingNames.length = 0; edesc = null;
   clearInterval(pollTimer);
   pollTimer = setInterval(poll, 250);
   $("connect").classList.toggle("on", l.kind === "usb");
@@ -470,6 +509,7 @@ function paintDrums() {
       for (let l = 0; l < 8; l++) {
         const b = document.createElement("button");
         b.className = "lane";
+        b.style.setProperty("--c", ACC[l % 4]);          /* (the colours of EDIT's faders) */
         b.dataset.t = t; b.dataset.l = l;
         press(b, () => { if (st) send(5, t, l, (st.trk[t].lanes >> l) & 1 ? 0 : 1); buzz(6); });
         g.appendChild(b);
@@ -484,17 +524,77 @@ function paintDrums() {
   });
 }
 
+/* ------------------------------------------------------------ EDIT (the selected track's sound) --- */
+const edVal = [0, 0, 0, 0, 0, 0, 0, 0];
+let edDrag = -1;
+const edEls = [];
+for (let k = 0; k < 8; k++) {
+  const f = document.createElement("div");
+  f.className = "fader";
+  f.innerHTML = `<label>—</label><div class="ftrack"><div class="ffill"></div></div><output></output>`;
+  const tr = f.querySelector(".ftrack"), fill = f.querySelector(".ffill");
+  fill.style.setProperty("--c", ACC[k % 4]);
+  let lastSent = 0, timer = 0;
+  const push = () => { lastSent = performance.now(); send(9, k, ...v14(edVal[k])); };
+  const set = (ev) => {
+    const d = edesc && edesc[k];
+    if (!d) return;
+    const rc = tr.getBoundingClientRect();
+    const y = Math.max(0, Math.min(1, (rc.bottom - ev.clientY) / rc.height));
+    const v = Math.round(d.min + y * (d.max - d.min));
+    if (v === edVal[k]) return;
+    edVal[k] = v;
+    clearTimeout(timer);
+    if (performance.now() - lastSent > 30) push(); else timer = setTimeout(push, 30);
+    paintEdit();
+  };
+  tr.addEventListener("pointerdown", (ev) => { ev.preventDefault(); tr.setPointerCapture(ev.pointerId); edDrag = k; buzz(4); set(ev); });
+  tr.addEventListener("pointermove", (ev) => { if (edDrag === k) set(ev); });
+  const end = () => { if (edDrag === k) edDrag = -1; };
+  tr.addEventListener("pointerup", end);
+  tr.addEventListener("pointercancel", end);
+  $("egrid").appendChild(f);
+  edEls.push({ f, tr, fill, label: f.querySelector("label"), out: f.querySelector("output") });
+}
+function paintEdit() {
+  const s = st, ok = !!(s && s.ev && edesc);
+  $("ehead").innerHTML = !s ? `<span>NOT CONNECTED · TAP ⚙ TO CONNECT</span>`
+    : !s.ev ? `<span>THIS FIRMWARE HAS NO REMOTE EDIT</span>`
+    : `<b>TRACK ${s.sel + 1}</b><span>${ENG[s.seng] || "ENG " + s.seng}</span>`;
+  edEls.forEach((el, k) => {
+    const d = ok ? edesc[k] : null, live = !!(d && d.label && d.max > d.min);
+    el.f.classList.toggle("na", !live);
+    el.label.textContent = live ? d.label : "—";
+    el.out.textContent = live ? s.et[k] : "";
+    el.tr.classList.toggle("bi", live && d.min < 0);
+    if (!live) { el.fill.style.top = "100%"; el.fill.style.bottom = "0"; return; }
+    const pos = (v) => ((Math.max(d.min, Math.min(d.max, v)) - d.min) / (d.max - d.min)) * 100;
+    if (d.min < 0) {                                  /* bipolar: from the centre */
+      const z = pos(0), p = pos(edVal[k]);
+      el.fill.style.bottom = Math.min(z, p) + "%"; el.fill.style.top = (100 - Math.max(z, p)) + "%";
+    } else {
+      el.fill.style.top = (100 - pos(edVal[k])) + "%"; el.fill.style.bottom = "0";
+    }
+  });
+}
+
 /* ------------------------------------------------------------ tracks --- */
 const trkEls = [];
+/* the sound button's speaker: waves while the track sounds, a cross while it is muted */
+const SPK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+  `<path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/>` +
+  `<path class="w" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>` +
+  `<path class="x" d="m16 9 6 6m0-6-6 6"/></svg>`;
 for (let t = 0; t < 4; t++) {
   const row = document.createElement("div");
   row.className = "trk";
-  row.innerHTML = `<div class="nm"><b>T${t + 1}</b><span>—</span></div><button class="tb solo">SOLO</button><button class="tb mute">MUTE</button>`;
-  const solo = row.querySelector(".solo"), mute = row.querySelector(".mute");
+  row.innerHTML = `<div class="nm"><b>T${t + 1}</b><span>—</span></div><button class="tb sel">SELECT</button><button class="tb solo">SOLO</button><button class="tb mute" aria-label="Sound on / muted">${SPK}</button>`;
+  const solo = row.querySelector(".solo"), mute = row.querySelector(".mute"), sel = row.querySelector(".sel");
+  press(sel, () => { if (st && st.ev && st.sel !== t) { send(8, t); edesc = null; } buzz(6); });
   press(solo, () => { if (st) send(3, t, (st.rsolo >> t) & 1 ? 0 : 1); buzz(6); });
   press(mute, () => { if (st) send(4, t, st.trk[t].mute ? 0 : 1); buzz(6); });
   $("tracks").appendChild(row);
-  trkEls.push({ row, eng: row.querySelector(".nm span"), solo, mute });
+  trkEls.push({ row, eng: row.querySelector(".nm span"), solo, mute, sel });
 }
 
 /* ------------------------------------------------------------ paint --- */
@@ -510,13 +610,20 @@ function render() {
     el.eng.textContent = ENG[tr.eng] || "ENG " + tr.eng;
     el.solo.classList.toggle("on", !!((s.rsolo >> t) & 1));
     el.solo.classList.toggle("dev", !!((s.solo >> t) & 1) && !((s.rsolo >> t) & 1));
-    el.mute.classList.toggle("on", tr.mute);
+    el.mute.classList.toggle("on", !tr.mute);         /* lit: the track sounds */
+    el.mute.classList.toggle("off", tr.mute);
+    el.sel.classList.toggle("on", !!s.ev && s.sel === t);
+    el.sel.classList.toggle("na", !s.ev);
     el.row.classList.toggle("silent", tr.mute || (anySolo && !((anySolo >> t) & 1)));
   });
   paintDrums();
+  /* the EDIT values follow the device, unless a finger is on one */
+  if (s.ev) s.ev.forEach((v, k) => { if (edDrag !== k) edVal[k] = v; });
+  paintEdit();
 }
 paintMacros();
 paintDrums();
+paintEdit();
 
 /* a page hidden or closed lets go of what it holds (the FM-1 also does after 1.5 s without a request) */
 document.addEventListener("visibilitychange", () => {

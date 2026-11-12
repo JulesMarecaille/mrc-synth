@@ -11,6 +11,12 @@
  *   op 5 t l on       mute of lane l of track t (eng_drum.c drum_mute, as EDIT's quick actions)
  *   op 6              let everything of the remote's go (its effects, its solos; the macros back to 0)
  *   op 7 t            the lanes' names as the track's KIT plays them (8 x 0-terminated, after the state)
+ *   op 8 t            select track t (as KNOB 1 on TRACKS: keys, pages and the editor follow)
+ *   op 9 k v14        EDIT value k (P_E0 + k) of the selected track: clamped, an F_ENUM past its aliases
+ *   op 10             as op 0, and the sound block carries the 8 values' labels and ranges
+ * After the state (and op 7's names), the sound block: the selected track, its engine, then per value v14 and its
+ * text as the device shows it (0-terminated); op 10 then per value its label (0-terminated), min v14, max v14.
+ * (At the end, so a page of before it reads the rest as it did.)
  * Nothing here is recorded or saved but the mutes. A remote that stops asking (RMT_ALIVE ms: the page asks
  * every 250 ms) lets its effects and solos go, so a pulled cable never leaves an effect held. */
 #define RMT_ALIVE 1500u
@@ -26,6 +32,13 @@ static uint32_t rmt_put14(uint8_t *o, uint32_t n, uint32_t max, uint32_t v)   /*
 {
     n = rmt_put(o, n, max, v);
     return rmt_put(o, n, max, v >> 7);
+}
+
+static uint32_t rmt_str(uint8_t *o, uint32_t n, uint32_t max, const char *s)   /* 0-terminated */
+{
+    while (s && *s)
+        n = rmt_put(o, n, max, (uint8_t)*s++);
+    return rmt_put(o, n, max, 0);
 }
 
 static void rmt_release(void)
@@ -71,10 +84,22 @@ static uint32_t rmt_handle(const uint8_t *a, uint32_t na, uint8_t *o, uint32_t m
     } else if (op == 6u && na == 1u) {
         rmt_release();
         perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
-    } else if (!((op == 0u && na == 1u) || (op == 7u && na == 2u && a[1] < NTRK))) {
+    } else if (op == 8u && na == 2u && a[1] < NTRK) {
+        track_select(a[1]);
+    } else if (op == 9u && na == 4u && a[1] < 8u) {
+        uint32_t id = P_E0 + a[1];
+        const param_desc_t *d = param_desc_of(eng_idx(TSEL->eng_req), id);
+        int32_t v = clamp((int32_t)(a[2] | a[3] << 7) - 8192, d->min, d->max);
+        if (d->max > d->min && !(chain_busy() && chain_owns(id))) {   /* (a fixed value stays, as the editor's SET) */
+            if (d->fmt == F_ENUM)
+                v = enum_orig(d, enum_step(d, TSEL->p[id], v));
+            TSEL->p[id] = (int16_t)v;
+            (void)motion_capture(TSEL, id, TSEL->p[id]);
+        }
+    } else if (!((op == 0u && na == 1u) || (op == 7u && na == 2u && a[1] < NTRK) || (op == 10u && na == 1u))) {
         rc = 1;
     }
-    if (op && op != 7u && !rc)
+    if (op && op != 7u && op != 10u && !rc)
         ui.force = 1;
     /* the state */
     n = rmt_put(o, n, max, op);
@@ -103,6 +128,28 @@ static uint32_t rmt_handle(const uint8_t *a, uint32_t na, uint8_t *o, uint32_t m
             while (*s)
                 n = rmt_put(o, n, max, (uint8_t)*s++);
             n = rmt_put(o, n, max, 0);
+        }
+    /* the sound block: the selected track's EDIT values */
+    n = rmt_put(o, n, max, song.sel);
+    n = rmt_put(o, n, max, TSEL->eng_req % NENGINES);
+    for (l = 0; l < 8u; l++) {
+        const param_desc_t *d = track_desc(TSEL, P_E0 + l);
+        const char *unit;
+        char val[16];
+        param_format(d, TSEL->p[P_E0 + l], val, &unit);
+        n = rmt_put14(o, n, max, (uint32_t)(TSEL->p[P_E0 + l] + 8192));
+        for (t = 0; val[t]; t++)
+            n = rmt_put(o, n, max, (uint8_t)val[t]);
+        if (*unit && *unit != '%')
+            n = rmt_put(o, n, max, ' ');
+        n = rmt_str(o, n, max, unit);
+    }
+    if (op == 10u && !rc)
+        for (l = 0; l < 8u; l++) {
+            const param_desc_t *d = track_desc(TSEL, P_E0 + l);
+            n = rmt_str(o, n, max, d->max > d->min ? d->label : "");   /* (a fixed value: no label, not shown) */
+            n = rmt_put14(o, n, max, (uint32_t)(d->min + 8192));
+            n = rmt_put14(o, n, max, (uint32_t)(d->max + 8192));
         }
     return n <= max ? n : 0u;
 }

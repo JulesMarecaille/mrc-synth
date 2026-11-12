@@ -504,7 +504,7 @@ EXPORT uint16_t *web_screen(void) { return web_fb; }
 EXPORT uint32_t web_screen_draws(void) { return web_draws; }
 /* MRC: the phone remote's SysEx frame (F0 7D 46 4C 52 .. F7, as editor.c takes it) in web_remote_buf; the reply
  * frame in its place, its length returned (0: not one) */
-static uint8_t web_rmt[256];
+static uint8_t web_rmt[512];
 EXPORT uint8_t *web_remote_buf(void) { return web_rmt; }
 EXPORT uint32_t web_remote(uint32_t n)
 {
