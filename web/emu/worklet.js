@@ -65,6 +65,9 @@ if (typeof registerProcessor === "function") {
       this.frames = 0;
       this.queue = [];                                // button / key changes, each held >= HOLD_MS of device time
       this.nextOk = 0;
+      this.tapUntil = 0;                              // MRC: the remote's RECORD: the output, in blocks, until then
+      this.tapL = this.tapR = null;
+      this.tapN = 0;
       this.port.onmessage = (e) => this.onMessage(e.data);
     }
 
@@ -93,6 +96,7 @@ if (typeof registerProcessor === "function") {
       else if (m.type === "master") ex.web_master(m.value | 0);
       else if (m.type === "midi") ex.web_midi(m.data[0] | 0, m.data[1] | 0, m.data[2] | 0);
       else if (m.type === "visible") this.period = m.on ? 1 / 30 : 1 / 4;
+      else if (m.type === "tap") this.tapUntil = m.on ? currentTime + 70 : 0;   // kept alive by the remote (a hidden tab's timers can slow to one a minute)
       else if (m.type === "remote" && ex.web_remote) {  // MRC: the phone remote's SysEx (remote.html, via the page)
         const d = m.data || [], buf = new Uint8Array(ex.memory.buffer, ex.web_remote_buf(), 512);
         if (d.length > 256) return;
@@ -147,6 +151,17 @@ if (typeof registerProcessor === "function") {
       }
     }
 
+    // MRC: the output for the remote's RECORD, 4096 frames (about 93 ms) a message
+    tap(l, r, n) {
+      if (!this.tapL) { this.tapL = new Float32Array(4096); this.tapR = new Float32Array(4096); this.tapN = 0; }
+      this.tapL.set(l.subarray(0, n), this.tapN);
+      this.tapR.set(r.subarray(0, n), this.tapN);
+      if ((this.tapN += n) >= 4096) {
+        this.port.postMessage({ type: "tap", l: this.tapL, r: this.tapR, rate: sampleRate }, [this.tapL.buffer, this.tapR.buffer]);
+        this.tapL = this.tapR = null;
+      }
+    }
+
     process(inputs, outputs) {
       const ex = this.ex;
       if (!ex) return true;
@@ -158,6 +173,7 @@ if (typeof registerProcessor === "function") {
       this.frames += n;
       out[0].set(new Float32Array(ex.memory.buffer, ex.web_out_l(), n));
       if (out[1]) out[1].set(new Float32Array(ex.memory.buffer, ex.web_out_r(), n));
+      if (this.tapUntil > currentTime) this.tap(out[0], out[1] || out[0], n);
       if (currentTime - this.lastFrame >= this.period) {
         this.lastFrame = currentTime;
         this.publish();

@@ -3084,13 +3084,13 @@ static int test_layer(void)
     ok &= gates() > 0 && !((kb_layer >> white(0)) & 1u);
     key_up(white(0)); key_up(white(4)); frame();
     bad += check("FX let go first: the key holds its effect and the map; a new key is a note", ok && !ui.layer && !perf_held);
-    /* OCT UP (G4) and OCT DN (A4), the 9th and 10th white keys: held effects, silent; KNOB 4 the shimmer while
-     * held, back to 0 with FX; B4 on does nothing */
+    /* OCT UP (G4) and OCT DN (A4), the 9th and 10th white keys: held effects, silent; KNOB 4 (MRC: ECHO) turns,
+     * back to 0 with FX; B4 on does nothing */
     ui_power_on();
     usb.config = 1; mo = mo_w;
     btn_down(B_FX); key_down(white(8)); frame();
     ok = ui.layer == LAYER_FX && !gates() && mo_w == mo && perf_held == PF_BIT(PF_OUP);
-    perf_begin(CTL);                                    /* (an audio block: OCT UP runs, KNOB 4 is SHIMR) */
+    perf_begin(CTL);                                    /* (an audio block: OCT UP runs, KNOB 4 is ECHO) */
     turn(EN_K4, 40);
     ok &= perf_k[3] == 40;
     key_up(white(8)); key_down(white(9)); frame();
@@ -6356,7 +6356,7 @@ static void rc_enc(uint32_t role, int32_t s, int late)
  * the detents come after the reads. a: the state with the layer open, b: after it closed */
 static void rc_run(uint32_t lb, uint32_t mode, uint32_t k, uint32_t pg, int late, rc_state_t *a, rc_state_t *b)
 {
-    int32_t d = (lb == B_GLO || (lb == B_FX && k == 3u)) ? -1 : 1;   /* (GLO LEVEL, FX DEPTH: room to move) */
+    int32_t d = lb == B_GLO ? -1 : 1;                   /* (GLO LEVEL: room to move; MRC: FX KNOB 4 ECHO from 0) */
     uint32_t i;
     ui_power_on();
     if (pg < NPAGES) { ui.home = 0; ui.page = (uint8_t)pg; page_entered(); }
@@ -7291,7 +7291,7 @@ static int test_fx_map(void)
     return bad;
 }
 
-/* #40: KNOB 4's DEPTH rises to the right (it fell); MENU > FX LATCH ON: a key with FX turns its effect on, again off,
+/* #40: KNOB 4 rises to the right (MRC: ECHO, OCT UP or not); MENU > FX LATCH ON: a key with FX turns its effect on, again off,
  * nothing held needed; the macros stay after FX; FX + OCT- all off; the menu turns them off; FX's LED shows them;
  * OFF (the default, and every older setting): as before */
 static int test_fx_latch(void)
@@ -7300,13 +7300,13 @@ static int test_fx_latch(void)
     uint32_t lpf = white(4), m1 = black(0);
     ui_power_on();
     btn_down(B_FX); frame();
-    turn(EN_K4, 5);  ok = perf_k[3] == 0;                         /* DEPTH 100 %: right stays at 100 */
-    turn(EN_K4, -30); ok &= perf_k[3] == 30;                      /* left: 70 % */
-    turn(EN_K4, 10); ok &= perf_k[3] == 20;                       /* right: 80 % */
-    key_down(white(8)); frame(); perf_begin(CTL);                 /* OCT UP: KNOB 4 is SHIMR, right is more */
-    turn(EN_K4, 10); ok &= perf_k[3] == 30;
+    turn(EN_K4, 5);  ok = perf_k[3] == 5;                         /* ECHO 5 % */
+    turn(EN_K4, -30); ok &= perf_k[3] == 0;                       /* left: stops at 0 */
+    turn(EN_K4, 10); ok &= perf_k[3] == 10;                       /* right: 10 % */
+    key_down(white(8)); frame(); perf_begin(CTL);                 /* OCT UP: still ECHO, right is more */
+    turn(EN_K4, 10); ok &= perf_k[3] == 20;
     key_up(white(8)); frame(); btn_up(B_FX); frame();
-    bad += check("#40 FX + KNOB 4: DEPTH rises to the right, falls to the left; SHIMR (OCT UP) rises to the right",
+    bad += check("#40 FX + KNOB 4: ECHO rises to the right, falls to the left, OCT UP playing or not",
                  ok && !perf_k[3]);
     /* OFF (the default; a byte older settings leave 0) */
     ui_power_on();

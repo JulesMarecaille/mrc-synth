@@ -5,7 +5,7 @@
  * Request: F0 7D 46 4C 52 op args.. F7. Every request answers with the state (rmt_state).
  *   op 0              query
  *   op 1 e down       hold (1) / let go (0) effect e (PF_*, below PF_M1): as a white key held with FX (perf_rmt)
- *   op 2 k v14        macro k (0 FILTER -100..100, 1 CRUSH, 2 THROW, 3 DEPTH 0..100): perf_k, as KNOB 1..4 with FX
+ *   op 2 k v14        macro k (0 FILTER -100..100, 1 CRUSH, 2 REV, 3 ECHO 0..100): perf_k, as KNOB 1..4 with FX
  *   op 3 t on         solo of track t (perf_rsolo, OR'd with GLO's while held)
  *   op 4 t on         mute of track t (P_MUTE, saved with the project as GLO's black keys)
  *   op 5 t l on       mute of lane l of track t (eng_drum.c drum_mute, as EDIT's quick actions)

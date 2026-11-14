@@ -11,7 +11,8 @@
  * 5. the keys: a layer key plays nothing and sends no MIDI; a key held before FX stays a note; the white
  *    keys past the first 12 (D5 .. G5, none in the default map) are the layer's too but do nothing.
  * 6. idle: nothing held, nothing ramping, the mix is bit-identical (and the goldens of regress.c too).
- * 7. no clicks, no overflow; the filters, the CRUSH and THROW macros and the mutes do what they say.
+ * 7. no clicks, no overflow; the filters, the CRUSH, REV and ECHO macros and the mutes do what they say (MRC: KNOB 3 / 4
+ *    the throws by an amount: each send towards full by its share, the other untouched; a held key goes all the way).
  * 8. cost: instructions per sample of the song, idle and with every effect at once (proc_pid_rusage).
  * 9. OCT UP / OCT DN (the harmonizer): the pitch of the shifted part (the output less its 0.56 of the live
  *    input), each side its own: a sine whose period fits 1024 samples (the taps' distance) a whole number of
@@ -19,15 +20,14 @@
  *    2x / 0.5x within 3 cents (a 2.5 s DFT, its peak refined); any other sine (220 / 330 Hz) has its energy in
  *    lines fs / 2048 = 21.5 Hz apart round the target (the rotating-delay splice, kept from the original: its "phasey"
  *    sound): its strongest line within one spacing of 2x / 0.5x. A silent side stays silent; no click in or out on a 110 Hz sine and the live signal back bit for bit
- *    after the ramp; the shimmer (KNOB 4 at 100, 0.82) on 4x full-scale square waves stays bounded and dies
- *    away after the input stops; KNOB 4 at 0 is plain (the delay holds only the input); the cost: over the
+ *    after the ramp; no shimmer (MRC: KNOB 4 at 100 is ECHO, the delay holds only the input); the cost: over the
  *    idle song, and the harmonizer's own over REPEAT 1/16 alone (the layer's stage, which every effect of it
  *    pays): about 2 % at most (device estimate: 1.7 % per 100 instructions per sample).
  * 10. FLANGER, PHASER (1.2): silence stays silence, a silent side silent; no DC (a zero-mean noise keeps its mean, DC
  *    passes at unity) and about the input's level; bounded on 4x full-scale squares with LPF, HPF, REPEAT and CRUSH;
  *    the sweep follows the tempo (a 441 Hz saw comes out the same a bar / half a bar later at 120 and 90 BPM, not
  *    after 120's bar at 90); no click in or out, the live signal back bit for bit; stacked with REPEAT + LPF, let go:
- *    those as alone, bit for bit; L and R apart; KNOB 4 at 0 %: live; the cost.
+ *    those as alone, bit for bit; L and R apart; KNOB 4 (MRC: ECHO, no DEPTH) leaves them at full; the cost.
  * 11. the key map (perform.c perf_map_of / perf_map_put, seq.c): 0 = the default; any effect or NONE on any key, the
  *    others kept; the keys of a remapped layer; a key remapped while held takes its new effect; two keys with one
  *    effect; FX LATCH follows a remap; the default map on the keys.
@@ -38,7 +38,7 @@
  *    left alone, bounded on full-scale squares and dying away, the reverb tail ringing out after the release, idle
  *    again after it, assignable (key map codes 14 / 15, D5 / E5 by default), the tracks' values never touched.
  * Demos (WAV) into DEMO_DIR; with a third directory 1.5.1's throws (the loop dry, ECHO THROW at 1/8D, REV THROW); with a second directory, the harmonizer's (a melody with OCT UP, OCT DN, and
- * OCT UP with the shimmer) and FLANGER's and PHASER's (a loop plain, then with each) into it. */
+ * nothing more) and FLANGER's and PHASER's (a loop plain, then with each) into it. */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -82,7 +82,7 @@ static void perf_reset(void)
 typedef struct { uint32_t t; int e; } ev_t;
 static int busy_seen;
 static int8_t run_crush;                           /* KNOB 2 (CRUSH) during run(), 0 = untouched */
-static int8_t run_k4;                              /* KNOB 4 (DEPTH; with OCT UP / DN the shimmer) during run() */
+static int8_t run_k4;                              /* KNOB 4 (MRC: ECHO, nothing in the master's stages) during run() */
 static void run(uint32_t bpm, int playing, const ev_t *ev, uint32_t nev, uint32_t t1)
 {
     uint32_t t, k = 0;
@@ -528,7 +528,7 @@ static int test_misc(void)
             bad += check(what, peak(out_l, 0, 100000) < 300000 && peak(out_r, 0, 100000) < 300000);
         }
     }
-    {   /* KNOB 1 left: a low-pass at once; KNOB 4: the REPEAT's level */
+    {   /* KNOB 1 left: a low-pass at once */
         test_signal(5000, 30000, 5000, 30000);
         host_tracks_init();
         perf_reset();
@@ -546,22 +546,47 @@ static int test_misc(void)
         snprintf(what, sizeof what, "KNOB 1 FILTER all the way left: a 5 kHz sine down to %d", peak(out_l, 10000, 20000));
         bad += check(what, peak(out_l, 10000, 20000) < 3000);
     }
-    {   /* THROW (KNOB 3): the dry mix into the delay and reverb sends; mutes: a track ramps out */
-        static int32_t ml[CTL], mr[CTL], sd[CTL], sr[CTL];
+    {   /* MRC: KNOB 3 REV / KNOB 4 ECHO, REV / ECHO THROW by an amount: a track with its sends at 0 */
+        static int32_t b1[CTL], sd[CTL], sr[CTL];
         uint32_t i;
+        int32_t full;
+        int ok;
+        track_t *tk = &trk[0];
         host_tracks_init();
         perf_reset();
         song.playing = 1;
+        tk->p[P_REV] = tk->p[P_DLY] = 0;
+        for (i = 0; i < CTL; i++)
+            b1[i] = 40000;
+        full = mulq15(((40000 >> 2) * LEVEL_Q12[tk->p[P_LEVEL] & 127]) >> 10, 32766);
         perf_k[2] = 100;
-        for (t = 0; t < 1024u; t += CTL) {
-            for (i = 0; i < CTL; i++)
-                ml[i] = mr[i] = 8000, sd[i] = sr[i] = 0;
-            if (perf_begin(CTL))
-                perf_pre(ml, mr, sd, sr, CTL);
+        perf_k[3] = 50;
+        for (t = 0; t < 2048u; t += CTL) {
+            memset(sd, 0, sizeof sd);
+            memset(sr, 0, sizeof sr);
+            if (perf_begin(CTL) && pf.thr)
+                perf_throw(tk, b1, sd, sr, CTL);
         }
-        bad += check("KNOB 3 THROW at 100: the dry mix into both sends, full, the dry mix untouched",
-                     sd[CTL - 1] > 7900 && sr[CTL - 1] > 7900 && ml[CTL - 1] == 8000 && mr[CTL - 1] == 8000);
-        perf_k[2] = 0;
+        snprintf(what, sizeof what, "KNOB 3 REV 100 / KNOB 4 ECHO 50: the reverb send %d (full %d), the delay's %d (half)",
+                 sr[CTL - 1], full, sd[CTL - 1]);
+        bad += check(what, abs(sr[CTL - 1] - full) <= full / 100 + 2 && abs(2 * sd[CTL - 1] - full) <= full / 50 + 4 &&
+                           pf.ew1 == 50 * 327 && !tk->p[P_REV] && !tk->p[P_DLY]);
+        perf_k[2] = 30;
+        perf_press(PF_RTHR, 1);                     /* a held key: all the way, whatever the knob */
+        for (t = 0; t < 2048u; t += CTL)
+            perf_begin(CTL);
+        ok = pf.rw1 == 32768;
+        perf_press(PF_RTHR, 0);
+        for (t = 0; t < 2048u; t += CTL)
+            perf_begin(CTL);
+        ok &= pf.rw1 == 30 * 327;
+        perf_k[2] = perf_k[3] = 0;
+        for (t = 0; t < 2048u; t += CTL) {
+            perf_begin(CTL);
+            perf_block(sd, sr, CTL);
+        }
+        bad += check("  REV THROW held over KNOB 3 at 30: full; let go: back to 30 %; both knobs to 0: idle again",
+                     ok && !pf.rw1 && !pf.ew1 && !pf.thr && !perf_begin(CTL));
     }
     {
         int32_t o[2 * CTL];
@@ -686,33 +711,19 @@ static int test_harm(void)
         bad += check("  back to the live signal, bit for bit; the buffer given back",
                      same(40000 + 3000, 49000) && !sl_lent && pf.mode == BM_NONE);
     }
-    {   /* the shimmer at its most: bounded, and it dies away */
-        ev_t ev[] = {{0, PF_OUP + 1}};
-        int32_t pk, tail;
-        uint32_t e1 = NT / CTL * CTL, e0 = e1 - FS / 2u;   /* (whole blocks) the last half second */
-        for (t = 0; t < NT; t++) {
-            in_l[t] = t < 3u * FS ? ((t / 37u) & 1u ? 120000 : -120000) : 0;
-            in_r[t] = t < 3u * FS ? ((t / 53u) & 1u ? 120000 : -120000) : 0;
-        }
-        run_k4 = 100;
-        run(120, 1, ev, 1, e1);
-        run_k4 = 0;
-        pk = peak(out_l, 0, e1) > peak(out_r, 0, e1) ? peak(out_l, 0, e1) : peak(out_r, 0, e1);
-        tail = peak(out_l, e0, e1) > peak(out_r, e0, e1) ? peak(out_l, e0, e1) : peak(out_r, e0, e1);
-        snprintf(what, sizeof what, "OCT UP shimmer 0.82 on 4x full-scale squares: peak %d, 2.5 s after they stop %d", pk, tail);
-        bad += check(what, pk < 300000 && tail <= 16 && pf.hfb == 100 * HB_FB);
-    }
-    {   /* KNOB 4 at 0: no feedback, the delay holds the input only (half level) */
+    {   /* MRC: no shimmer: KNOB 4 (ECHO) at 100, the delay holds the input only (half level) */
         ev_t ev[] = {{0, PF_OUP + 1}};
         uint32_t f, diff = 0;
         test_signal(440, 12000, 330, 9000);
+        run_k4 = 100;
         run(120, 1, ev, 1, 20000);
+        run_k4 = 0;
         for (f = 1; f <= 2048u; f++) {
             uint32_t s = 20000u - f;
             const int16_t *q = &sl_buf[0][0] + 2u * ((pf.wr - f) & HB_MASK);
             diff += q[0] != (int16_t)(in_l[s] >> 1) || q[1] != (int16_t)(in_r[s] >> 1);
         }
-        bad += check("OCT UP, KNOB 4 at 0: no shimmer (the delay holds the input alone)", !diff && !pf.hfb);
+        bad += check("OCT UP, KNOB 4 at 100: no shimmer (the delay holds the input alone)", !diff);
     }
     return bad;
 }
@@ -887,19 +898,19 @@ static int test_mod(void)
                  peak(out_l, 0, 80000));
         bad += check(what, lr > 50000u && peak(out_l, 0, 80000) < 40000 && pf.fw == 32768 && pf.pw == 32768);
     }
-    {   /* KNOB 4 DEPTH: their level (0 % = the live signal) */
+    {   /* MRC: no DEPTH: KNOB 4 (ECHO) at 100 leaves FLANGER and PHASER as at 0, bit for bit */
+        static int32_t ref_l[20000];
         ev_t ev[] = {{0, PF_FLG + 1}, {0, PF_PHS + 1}};
+        uint32_t diff = 0;
         test_signal(330, 12000, 220, 12000);
+        run(120, 1, ev, 2, 20000);
+        memcpy(ref_l, out_l, sizeof ref_l);
         run_k4 = 100;
         run(120, 1, ev, 2, 20000);
         run_k4 = 0;
-        {
-            int32_t d = 0;
-            for (t = 0; t < 20000u; t++)
-                d = abs(out_l[t] - in_l[t]) > d ? abs(out_l[t] - in_l[t]) : d;
-            snprintf(what, sizeof what, "KNOB 4 DEPTH 0 %%: FLANGER and PHASER held, the live signal (within %d of 12000)", d);
-            bad += check(what, d <= 120);                /* (as the buffer effects: 0 % is 68 / 32768 of the effect) */
-        }
+        for (t = 0; t < 20000u; t++)
+            diff += out_l[t] != ref_l[t];
+        bad += check("KNOB 4 ECHO 100: FLANGER and PHASER held at full, as at 0 (no DEPTH)", !diff);
     }
     return bad;
 }
@@ -1403,10 +1414,9 @@ static double cost_run(int on)
     if (on == 1) {
         for (k = 0; k < sizeof ALL / sizeof ALL[0]; k++)
             perf_press((uint32_t)ALL[k], 1);
-        perf_k[1] = perf_k[2] = 100;                /* the CRUSH and THROW macros */
-    } else if (on == 2 || on == 4) {                /* OCT UP, with the shimmer (2) or plain (4) */
+        perf_k[1] = perf_k[2] = perf_k[3] = 100;    /* the CRUSH, REV and ECHO macros */
+    } else if (on == 4) {                           /* OCT UP */
         perf_press((uint32_t)HARM[0], 1);
-        perf_k[3] = on == 2 ? 60 : 0;
     } else if (on == 3) {                           /* REPEAT 1/16 alone: the layer's own cost, for scale */
         perf_press(PF_R16, 1);
     } else if (on == 5 || on == 6) {                /* REPEAT 1/16 and FLANGER (5) / PHASER (6) */
@@ -1427,7 +1437,7 @@ static double cost_run(int on)
 }
 static int test_cost(void)
 {
-    double idle = cost_run(0), on = cost_run(1), harm = cost_run(2), rep = cost_run(3), plain = cost_run(4);
+    double idle = cost_run(0), on = cost_run(1), rep = cost_run(3), plain = cost_run(4);
     double flg = cost_run(5), phs = cost_run(6), thr = cost_run(7);
     char what[200];
     int bad;
@@ -1435,14 +1445,14 @@ static int test_cost(void)
         printf("perform: cost: no instruction counter on this host\n");
         return 0;
     }
-    snprintf(what, sizeof what, "cost: the song %.0f instructions / sample idle, %.0f with REPEAT+LPF+HPF+MUTE, K2 CRUSH, K3 THROW: +%.0f",
+    snprintf(what, sizeof what, "cost: the song %.0f instructions / sample idle, %.0f with REPEAT+LPF+HPF+MUTE, K2 CRUSH, K3 REV, K4 ECHO: +%.0f",
              idle, on, on - idle);
     bad = check(what, on - idle < 400);
-    printf("perform: cost: over the idle song: REPEAT 1/16 alone +%.0f (the layer's own stage), OCT UP +%.0f, with the shimmer +%.0f\n",
-           rep - idle, plain - idle, harm - idle);
-    snprintf(what, sizeof what, "  OCT UP over REPEAT 1/16 (the harmonizer itself): +%.0f, with the shimmer +%.0f (device ~%.1f / %.1f %%, about 2 %%)",
-             plain - rep, harm - rep, (plain - rep) * 0.017, (harm - rep) * 0.017);
-    bad += check(what, (harm - rep) * 0.017 <= 2.2);
+    printf("perform: cost: over the idle song: REPEAT 1/16 alone +%.0f (the layer's own stage), OCT UP +%.0f\n",
+           rep - idle, plain - idle);
+    snprintf(what, sizeof what, "  OCT UP over REPEAT 1/16 (the harmonizer itself): +%.0f (device ~%.1f %%, about 2 %%)",
+             plain - rep, (plain - rep) * 0.017);
+    bad += check(what, (plain - rep) * 0.017 <= 2.2);
     snprintf(what, sizeof what, "  FLANGER over REPEAT 1/16: +%.0f, PHASER +%.0f (device ~%.1f / %.1f %%, at most 2.5 %% each)",
              flg - rep, phs - rep, (flg - rep) * 0.017, (phs - rep) * 0.017);
     bad += check(what, (flg - rep) * 0.017 <= 2.5 && (phs - rep) * 0.017 <= 2.5);
@@ -1462,7 +1472,7 @@ static void demo_at(uint32_t t)
         {440896, PF_M1 + 1}, {462848, -(PF_M1 + 1)}};
     uint32_t i;
     if (t == 462848u)
-        perf_k[2] = 100;                            /* KNOB 3 THROW for a moment */
+        perf_k[2] = 100;                            /* KNOB 3 REV for a moment */
     if (t == 474880u)
         perf_k[2] = 0;
     for (i = 0; i < sizeof D / sizeof D[0]; i++)
@@ -1483,31 +1493,29 @@ static void demos(const char *dir)
     for (t = 0; t < NT - 4096u; t++)
         wav_put(f, song_l[t], song_r[t]);
     fclose(f);
-    printf("perform: demo %s (REPEAT 1/8, a 1/16 -> 1/32 roll, LPF, HPF, REVERSE, TAPE STOP, FREEZE, MUTE 1, KNOB 3 THROW)\n", path);
+    printf("perform: demo %s (REPEAT 1/8, a 1/16 -> 1/32 roll, LPF, HPF, REVERSE, TAPE STOP, FREEZE, MUTE 1, KNOB 3 REV)\n", path);
 }
 
-/* the harmonizer on a melody: plain, OCT UP (a bar), OCT DN (a bar), OCT UP with the shimmer (a bar) */
+/* the harmonizer on a melody: plain, OCT UP (a bar), OCT DN (a bar) */
 static uint32_t hd_mode;
 static void harm_at(uint32_t t)
 {
     uint32_t bar = 4u * FS * 60u / 110u, e = hd_mode == 1u ? PF_ODN : PF_OUP;
     if (!hd_mode)
         return;
-    if (t == ((bar + CTL - 1u) / CTL) * CTL) {
-        perf_k[3] = hd_mode == 2u ? 70 : 0;
+    if (t == ((bar + CTL - 1u) / CTL) * CTL)
         perf_press(e, 1);
-    }
     if (t == ((3u * bar + CTL - 1u) / CTL) * CTL)
         perf_press(e, 0);
 }
 static void harm_demos(const char *dir)
 {
     static const uint8_t MEL[16] = {69, 0, 72, 76, 0, 74, 72, 0, 71, 0, 67, 69, 0, 0, 64, 0};
-    static const char *const NAME[3] = {"harmonizer_up", "harmonizer_down", "harmonizer_shimmer"};
+    static const char *const NAME[2] = {"harmonizer_up", "harmonizer_down"};
     char path[512];
     FILE *f;
     uint32_t t, i, m, frames = 4u * 4u * FS * 60u / 110u + FS;
-    for (m = 0; m < 3u; m++) {
+    for (m = 0; m < 2u; m++) {
         memset(trk, 0, sizeof trk);
         host_tracks_init();
         perf_reset();
@@ -1518,7 +1526,6 @@ static void harm_demos(const char *dir)
         hd_mode = m + 1u;
         song_render(frames, harm_at);
         hd_mode = 0;
-        perf_k[3] = 0;
         snprintf(path, sizeof path, "%s/%s.wav", dir, NAME[m]);
         if (!(f = fopen(path, "wb")))
             return;
@@ -1527,7 +1534,7 @@ static void harm_demos(const char *dir)
             wav_put(f, song_l[t], song_r[t]);
         fclose(f);
         printf("perform: demo %s (a bar plain, two with %s, one plain)\n", path,
-               m == 0u ? "OCT UP" : m == 1u ? "OCT DN" : "OCT UP and KNOB 4 SHIMMER 70");
+               m == 0u ? "OCT UP" : "OCT DN");
     }
 }
 

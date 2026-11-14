@@ -904,6 +904,7 @@ async function switchOn() {
         if (m.type === "ready") res();
         else if (m.type === "error") rej(new Error(m.message));
         else if (m.type === "remote") { if (remoteBus) remoteBus.postMessage({ r: m.data }); }
+        else if (m.type === "tap") { if (remoteBus) remoteBus.postMessage({ a: { l: m.l, r: m.r, rate: m.rate } }); }
         else if (m.type === "frame") {
           if (m.fb) drawScreen(m.fb);
           if (m.leds) drawLights(lastLeds = m.leds, m.anim);
@@ -919,7 +920,11 @@ async function switchOn() {
     // MRC: the phone remote (remote.html) in another tab of this origin talks to this one as it would to the FM-1
     if (typeof BroadcastChannel === "function" && !remoteBus) {
       remoteBus = new BroadcastChannel("mrc-remote");
-      remoteBus.onmessage = (e) => { if (e.data && Array.isArray(e.data.q)) send({ type: "remote", data: e.data.q }); };
+      remoteBus.onmessage = (e) => {
+        if (!e.data) return;
+        if (Array.isArray(e.data.q)) send({ type: "remote", data: e.data.q });
+        else if ("tap" in e.data) send({ type: "tap", on: !!e.data.tap });   // the remote's RECORD: the output to it while on
+      };
     }
     document.getElementById("start").hidden = true;
     golabel.textContent = "On";

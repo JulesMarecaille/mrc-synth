@@ -1289,13 +1289,13 @@ static void setup(int s)
         perf_held = PF_BIT(PF_R16) | PF_BIT(PF_R8) | PF_BIT(PF_TAPE); perf_act = PF_BIT(PF_TAPE);
         perf_k[2] = 100;
         break;
-    case S_FX_HARM:                                 /* OCT UP playing, KNOB 4 its shimmer; OCT DN held under it */
+    case S_FX_HARM:                                 /* OCT UP playing, KNOB 4 ECHO; OCT DN held under it */
         song.playing = 1; ui.layer = LAYER_FX;
         perf_ord[PF_ODN] = ++perf_seq; perf_ord[PF_OUP] = ++perf_seq;
         perf_held = perf_act = PF_BIT(PF_OUP) | PF_BIT(PF_ODN);
         perf_k[3] = 60; ui.hot_col = 3; ui.hot_t = 30;
         break;
-    /* 1.2: FLANGER (B4) and PHASER (C5) held, KNOB 4 DEPTH 75 %; assigning: G3 remapped to PHASER and held (PRESETS
+    /* 1.2: FLANGER (B4) and PHASER (C5) held, KNOB 4 ECHO 25 %; assigning: G3 remapped to PHASER and held (PRESETS
      * turned: the message, the footer PRESETS ASSIGN / EDIT DEFAULT), D5 given FLANGER, C5 NONE */
     case S_FX_MOD:
         song.playing = 1; ui.layer = LAYER_FX;
