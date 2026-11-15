@@ -33,5 +33,6 @@ cp LICENSES/OFL-InterTight.txt build/emu/fonts/OFL-InterTight.txt
 # MRC: the phone remote (build/emu/remote/): same origin as the emulator, which it can drive from another tab
 mkdir -p build/emu/remote
 cp web/remote.html build/emu/remote/index.html
+cp web/remote/* build/emu/remote/                # manifest, icons, sw.js: the remote installs as an app
 echo "emu: build/emu/editor (the editor), build/emu/remote (the phone remote), build/emu/fonts (Inter Tight, Fukiai)"
 "$PY" dev/installer_preview.py
