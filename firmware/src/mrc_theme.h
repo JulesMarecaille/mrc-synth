@@ -12,7 +12,7 @@
 #pragma once
 
 #define MRC_TEXT_COLOR     0xE6F9u    /* #E4DCC8, the MRC palette's TEXT (tools/gen_ui_palettes.py) */
-#define MRC_BG_COLOR       0x1082u    /* #141414, the MRC palette's BG */
+#define MRC_BG_COLOR       0x0000u    /* #000000, the MRC palette's BG */
 #define MRC_ACCENT_1_COLOR 0xFF54u    /* #FBE8A6 */
 #define MRC_ACCENT_2_COLOR 0xF5CBu    /* #F3BA5A */
 #define MRC_ACCENT_3_COLOR 0xF4CFu    /* #F79B7A */
