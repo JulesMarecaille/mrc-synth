@@ -360,6 +360,7 @@ button { font: inherit; color: inherit; border: 0; background: none; padding: 0;
     <button class="opt" id="emu"><b>Emulator</b><span>The emulator open in another tab of this site.</span><em>CONNECT</em></button>
     <p class="msg" id="msg"></p>
     <div class="row"><span>Vibrate on touch</span><button class="sw on" id="haptic" aria-label="Vibrate on touch"></button></div>
+    <div class="row"><span>Landscape</span><button class="sw" id="land" aria-label="Lock in landscape"></button></div>
   </div>
 </div>
 
@@ -397,6 +398,39 @@ $("close").onclick = () => sheet(false);
 $("scrim").addEventListener("click", (e) => { if (e.target === $("scrim")) sheet(false); });
 $("haptic").classList.toggle("on", haptic);
 $("haptic").onclick = () => { haptic = !haptic; ls("mrc-remote-haptic", haptic ? "1" : "0"); $("haptic").classList.toggle("on", haptic); };
+
+/* MRC: Landscape -- the phone held sideways whatever its rotation setting. Chrome locks the orientation only in
+   fullscreen (or as an installed app): the lock alone first, else fullscreen then the lock, which needs a touch,
+   so a lock refused at start is tried again on the first touch. No lock API on iPhone: the switch does nothing there. */
+let land = ls("mrc-remote-land") === "1", landFs = false;
+async function landLock(gesture) {
+  const o = screen.orientation;
+  if (!o || !o.lock) return false;
+  try { await o.lock("landscape"); return true; } catch (_) {}
+  if (!gesture || !document.documentElement.requestFullscreen || document.fullscreenElement) return false;
+  try {
+    await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+    landFs = true;
+    await o.lock("landscape");
+    return true;
+  } catch (_) { return false; }
+}
+function landUnlock() {
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (_) {}
+  if (landFs && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  landFs = false;
+}
+function landRetry() {
+  /* a lock refused without a touch, or lost leaving fullscreen: again on the next touch */
+  document.addEventListener("pointerup", () => { if (land) landLock(true).then((ok) => { if (!ok && land) landRetry(); }); }, { once: true });
+}
+document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && landFs) { landFs = false; if (land) landRetry(); } });
+$("land").classList.toggle("on", land);
+$("land").onclick = () => {
+  land = !land; ls("mrc-remote-land", land ? "1" : "0"); $("land").classList.toggle("on", land);
+  if (land) landLock(true).then((ok) => { if (!ok && land) landRetry(); }); else landUnlock();
+};
+if (land) landLock(false).then((ok) => { if (!ok && land) landRetry(); });
 
 /* ------------------------------------------------------------ tabs --- */
 function showTab(p) {

@@ -870,10 +870,13 @@ static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_
 
 /* MRC: PUMP (G_PUMP, the DRUM grid's KNOB 3), a sidechain: the DRUM parts' level ducks every other part. Each DRUM
  * part's block peak after its LEVEL (mix_part, mix_spread: pump_pk) feeds one envelope (pump_block: instant attack,
- * ~90 ms release), full at PUMP_T (a kick at its default LEVEL gets there); the other parts' LEVEL is ramped across
- * the next block from the last block's gain to the one the envelope gives (a block late: CTL samples, the ramp is
- * the attack, no click). PUMP 127 and a full envelope: silence at the hit. PUMP 0: gain 1, the mix bit for bit as
- * before. The cost: a block's few divides, an add and a shift a sample in the mix loops */
+ * ~190 ms release), full at PUMP_T (a kick at its default LEVEL gets there), bent so the duck holds deep and comes
+ * back late (1 - (1 - e)^2: a pump, not a dip); the other parts' LEVEL is ramped across the next block from the
+ * last block's gain to the one the envelope gives (a block late: CTL samples, the ramp is the attack, no click), and
+ * so are the buses' returns and HALL's side (pump_wet): the CHORUS / DELAY / REVERB tails duck too, post effect, not
+ * only what goes into them. PUMP 127 and a full envelope: silence at the hit. PUMP 0: gain 1, the mix bit for bit as
+ * before. The cost: a block's few divides, an add and a shift a sample in the mix loops, the returns' loop while
+ * it ducks */
 #define PUMP_T 8192
 static int32_t pump_pk[NPART];                          /* the last block's peak of each DRUM part (0: none, or not DRUM) */
 static int32_t pump_env;
@@ -887,12 +890,30 @@ static void pump_block(uint32_t n)
             pk = pump_pk[i];
         pump_pk[i] = 0;
     }
-    e -= ((e * (int32_t)n) >> 12) + (e > 0);            /* (CTL 32: e / 128 a block, 93 ms) */
+    e -= ((e * (int32_t)n) >> 13) + (e > 0);            /* (CTL 32: e / 256 a block, 186 ms) */
     if (pk > PUMP_T)
         pk = PUMP_T;
     pump_env = e = pk > e ? pk : e;
+    e = PUMP_T - (((PUMP_T - e) * (PUMP_T - e)) >> 13);   /* (convex: held down, then back) */
     pump_g0 = pump_g1;
     pump_g1 = 32768 - (((clamp(song.g[G_PUMP], 0, 127) * 258) * e) >> 13);
+}
+/* the buses' returns (wet) and HALL's side ducked as the parts' LEVEL (post effect); nothing while the gain is 1 */
+static __attribute__((noinline)) void pump_wet(int32_t *w, uint32_t n)
+{
+    uint32_t i;
+    int32_t g, gd;
+    if ((pump_g0 & pump_g1) == 32768)
+        return;
+    g = pump_g0 << 3;                                   /* Q18: Q12 << 6, the ramp's step exact enough */
+    gd = ((pump_g1 - pump_g0) << 3) / (int32_t)n;
+    for (i = 0; i < n; i++) {
+        int32_t q = g >> 6;
+        w[i] = ((w[i] >> 2) * q) >> 10;
+        if (hl.side)
+            rev_side[i] = ((rev_side[i] >> 2) * q) >> 10;
+        g += gd;
+    }
 }
 /* the LEVEL of part t over this block, Q20 (Q12 << 8), and its step a sample (*dl): a DRUM part's as it is */
 static inline int32_t pump_lv(const track_t *t, int32_t lvl, int32_t *dl, uint32_t n)
@@ -1180,6 +1201,7 @@ static void mix_block(int32_t *out, uint32_t n)
         mix_part(&trk[i], n);
 #endif
     fx_buses(send_c, send_d, send_r, wet, n);
+    pump_wet(wet, n);                                   /* MRC: PUMP, the effects' tails ducked too */
     if (hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */
     if (scope_mix)
