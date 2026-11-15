@@ -408,6 +408,12 @@ static void draw_saved_full(void)
  * user preset's U07) in the accent, then its name; the loaded one taller in a dim RAISE box, its name in M, its
  * neighbours in S (ui_graph.c pref_row, the PRESETS page's too). The canvas holds 140 rows, so the list goes out in
  * several blits */
+#define PRE_MS 1000u                                    /* the list closes this long after the last detent */
+static void pre_tick(void)                              /* (ui.pre_t: every draw path, whatever is on screen) */
+{
+    if (ui.pre_t && fm1_ms - ui.pre_ms >= PRE_MS)
+        ui.pre_t = 0;
+}
 #define PREF_ROWS 11
 #define PREF_Y0 (H_HEAD + HALF_UP(240 - H_HEAD - ((PREF_ROWS - 1) * PREF_H + PREF_HC)))
 static uint32_t pref_visible(uint32_t cur, uint32_t total, uint32_t row)
@@ -1736,7 +1742,8 @@ static void ui_draw_page(uint32_t counting)
     }
     if (ui.pre_t && !ui.confirm && !name_on() && !ui.layer) {   /* MRC: the sound list, full screen, while turned */
         draw_presets_full();
-        ui.force = !--ui.pre_t;
+        pre_tick();
+        ui.force = !ui.pre_t;                           /* (the page comes back whole when it goes) */
         return;
     }
     if (ui.confirm) {                                   /* the OCT- / OCT+ dialog */
@@ -1763,8 +1770,7 @@ static void ui_draw_page(uint32_t counting)
         }
         if (ui.hot_t)
             ui.hot_t--;
-        if (ui.pre_t)
-            ui.pre_t--;
+        pre_tick();
         if (ui.bpm_t)
             ui.bpm_t--;
         ui.force = 0;
@@ -1789,8 +1795,7 @@ static void ui_draw_page(uint32_t counting)
         ui.msg2[0] = 0;
         ui.msg_t = 60;
     }
-    if (ui.pre_t)
-        ui.pre_t--;
+    pre_tick();
     if (ui.bpm_t)
         ui.bpm_t--;
     if (ui.hot_t)

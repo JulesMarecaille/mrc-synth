@@ -186,7 +186,9 @@ static struct {
     uint8_t help_t;              /* 1.5, MENU > HELP ON: frames the page's hint stays in the footer (ui_help.c) */
     uint8_t bpm_t;               /* frames the BPM stays highlighted after a SELECT turn */
     uint8_t saved_t;             /* MRC: frames SAVED stays full screen after SAVE + OCT+ (ui_draw.c draw_saved_full) */
-    uint8_t pre_t;               /* MRC: frames the sound list stays full screen after a PRESETS turn */
+    uint8_t pre_t;               /* MRC: the sound list is full screen after a PRESETS turn (until PRE_MS after pre_ms) */
+    uint32_t pre_ms;             /* MRC: its last detent (fm1_ms). Time, not frames: the device draws that full screen
+                                  * far slower than the emulator, 67 frames were ~1 s there and ~3 s on the FM-1 */
     uint8_t act;                 /* action pages: the column whose action OCT+ does, + 1; 0 = none (act_col) */
     uint8_t tl_clean;            /* GLO > CLEAR: KNOB 2 turned on past INIT, CLEAN INIT picked (1.5.5, #190) */
     uint32_t rec_t0;             /* REC press time: a tap arms (btn_hold, no hold: held, REC opens its layer) */

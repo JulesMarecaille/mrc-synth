@@ -1218,14 +1218,15 @@ static void seq_entry(uint32_t pressed)
  *   HOME, PRESETS and every other page (EDIT, ENV, LFO, FX, SCL, ARP, MIXER, CLOCK, ...): the selected track's
  *     sound, one list over every engine, then the used user presets (preset_step). A sound load keeps the steps
  *     (SAVE held undoes it). Up to 1.0.3 it did that on HOME and PRESETS only */
-/* MRC: a sound load by the PRESETS knob opens the list full screen (ui_draw.c draw_presets_full) for ~2 s after the
+/* MRC: a sound load by the PRESETS knob opens the list full screen (ui_draw.c draw_presets_full) for PRE_MS after the
  * last detent; an empty list keeps its message instead. It takes over from the tempo's screen */
 static void presets_full(void)
 {
     uint32_t total;
     preset_pos(&total);
     if (total) {
-        ui.pre_t = 67;
+        ui.pre_t = 1;
+        ui.pre_ms = fm1_ms;
         ui.bpm_t = 0;
     }
 }
@@ -1762,7 +1763,8 @@ static void ui_input(void)
                 list_set(m);
                 settings_later();
             }
-            ui.pre_t = 67;
+            ui.pre_t = 1;
+            ui.pre_ms = fm1_ms;
             ui.force = 1;
             continue;
         }
