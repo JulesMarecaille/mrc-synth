@@ -19,7 +19,7 @@
  *   TRACKS     the PRESETS knob does nothing there; KNOB 1 is MUTE.
  *   GRID       SEQ > STEP on a DRUM track: white keys toggle the selected lane's steps of the page, black
  *              keys 1..8 select the lane (and only they play), 9 held = ACC, 10 / 11 the page; KNOB 1..4 STEP
- *              LANE HIT ACC; the key LEDs (hits, the playhead inverted, the lane, ACC, the page keys); a step's
+ *              LANE PUMP ACC; the key LEDs (hits, the playhead inverted, the lane, ACC, the page keys); a step's
  *              GM notes shown on their lanes and made the lane's own by an edit; live recording into the grid
  *              (lane keys on the grid, GM keys elsewhere; other GM drums as notes; no TIE holds); a BEAT from
  *              PATTERNS fills the grid (undo); sound loads keep it, and other engines play it as GM notes.
@@ -640,17 +640,27 @@ static int test_patterns(void)
 static int test_rec(void)
 {
     static const uint8_t FAMS[3] = {FAM_TRK, FAM_SEQ, FAM_ARP};
-    int bad = 0;
+    int bad = 0, ok;
     uint32_t k;
     for (k = 0; k < 3u; k++) {
         ui_power_on();
         track_select(2);
         open_family(FAMS[k]);
         press(B_REC);
-        bad += check(k == 0 ? "REC on TRACKS: arms the selected track, PLAY starts" :
-                     k == 1 ? "#133 REC on SEQ > STEP: arms the selected track for step recording, PLAY does not start" :
-                     "REC on ARP: arms the selected track, PLAY starts",
-                     song.rec == 4u && (k == 1u ? transport_req == 0u && msg_is("KEYS WRITE STEPS") : transport_req == 1u));
+        {   /* MRC: stopped, REC only arms ("KEY STARTS REC"); the first key starts the transport (ui_input.c rec_tap) */
+            ok = song.rec == 4u && transport_req == 0u &&
+                     msg_is(k == 1u ? "KEYS WRITE STEPS" : "KEY STARTS REC");
+            if (k != 1u) {
+                fm1_in.notes = host_notes = 1u << 7;
+                frame();
+                fm1_in.notes = 0;
+                frame();
+                ok &= transport_req == 1u;
+            }
+            bad += check(k == 0 ? "REC on TRACKS: arms the selected track, the first key starts PLAY" :
+                         k == 1 ? "#133 REC on SEQ > STEP: arms the selected track for step recording, PLAY does not start" :
+                         "REC on ARP: arms the selected track, the first key starts PLAY", ok);
+        }
         song.playing = 1;
         transport_req = 0;
         frames(400);                                   /* (not a double tap: that locks the REC layer) */
@@ -664,7 +674,13 @@ static int test_rec(void)
     }
     ui_power_on();
     press(B_REC);
-    bad += check("REC on HOME records without changing the screen", ui.home && song.rec == 1u && transport_req == 1u);
+    ok = ui.home && song.rec == 1u && transport_req == 0u && msg_is("KEY STARTS REC");   /* MRC: armed; a key starts it */
+    fm1_in.notes = host_notes = 1u << 7;
+    frame();
+    fm1_in.notes = 0;
+    frame();
+    bad += check("REC on HOME arms without changing the screen, the first key starts recording",
+                 ok && ui.home && transport_req == 1u);
     /* STEP page: armed + playing -> the keys record live only */
     ui_power_on();
     open_family(FAM_SEQ);
@@ -1135,18 +1151,22 @@ static int test_grid(void)
     leds = grid_leds();
     ok &= (leds >> key_at(0, 0) & 1u) != 0u;
     bad += check("ACC held: a tap adds the hit accented, again drops the accent only; the LEDs show accents", ok);
-    /* the knobs: STEP LANE HIT ACC */
+    /* the knobs: STEP LANE PUMP ACC (MRC: KNOB 3 was HIT) */
+    song.g[G_PUMP] = 0;
     turn(EN_K1, 2);
     turn(EN_K2, 1);
     turn(EN_K3, 1);
-    ok = ui.cursor == 2u && ui.lane == 2u && t->step[2].hit == 1u << DV_CLAP;
-    turn(EN_K4, 1);
-    ok &= t->step[2].acc == 1u << DV_CLAP;
-    turn(EN_K3, -1);
-    ok &= !t->step[2].hit && !t->step[2].acc && t->step[2].time == ST_REST;
+    ok = ui.cursor == 2u && ui.lane == 2u && !t->step[2].hit && t->step[2].time == ST_REST && song.g[G_PUMP] > 0;
+    turn(EN_K3, -20);
+    ok &= song.g[G_PUMP] == 0 && !t->step[2].hit;
+    turn(EN_K3, 200);
+    ok &= song.g[G_PUMP] == 127;
+    song.g[G_PUMP] = 0;
     turn(EN_K4, 1);
     ok &= t->step[2].hit == 1u << DV_CLAP && t->step[2].acc == 1u << DV_CLAP;
-    bad += check("KNOB 1 STEP, 2 LANE, 3 HIT on / off, 4 ACC (an accent adds the hit)", ok);
+    turn(EN_K4, -1);
+    ok &= t->step[2].hit == 1u << DV_CLAP && !t->step[2].acc;
+    bad += check("KNOB 1 STEP, 2 LANE, 3 PUMP 0..127 (no hit touched), 4 ACC (an accent adds the hit)", ok);
     press(B_EDIT);
     bad += check("EDIT (MRC): the cursor step stays, the EDIT page opens", t->step[2].hit == 1u << DV_CLAP && ui.cursor == 2u &&
                  !grid_on());
@@ -2729,9 +2749,9 @@ static int test_product_ux(void)
             ok &= song.rec == 0 && !transport_req && msg_is("[SEQ] TO RECORD");
         else if (PAGES[i].graph == GR_ROLL)            /* #133: STEP's roll arms step recording, stopped */
             ok &= song.rec == 1 && !transport_req && ui.page == i && !ui.home;
-        else ok &= song.rec == 1 && transport_req == 1 && ui.page == i && !ui.home;
+        else ok &= song.rec == 1 && !transport_req && ui.page == i && !ui.home;   /* (MRC: armed; a key starts it) */
     }
-    bad += check("REC stays on every page, SONG stopped asks for pattern recording (STEP: step recording, stopped)", ok);
+    bad += check("REC stays on every page and arms, stopped; SONG stopped asks for pattern recording (STEP: step recording)", ok);
     ui_power_on(); hold(B_HOME); press(B_REC);
     bad += check("REC in the MENU does nothing (the menu stays, no arm, no transport start)",
                  ui.menu == 1 && song.rec == 0 && !transport_req);
@@ -3230,7 +3250,8 @@ static int test_layer(void)
             ok &= i == 1u || ((a ^ b2) >> white(i)) & 1u;
         for (i = 14; i < 16u; i++)                                    /* F5 G5: no effect, dark */
             ok &= !((a | b2) >> white(i) & 1u);
-        ok &= ((a ^ b2) >> key_at(1, 0)) & 1u && !((a | b2) >> key_at(1, 4) & 1u);   /* a mute breathes, a spare black dark */
+        ok &= ((a & b2) >> key_at(1, 0)) & 1u && !((a | b2) >> key_at(1, 4) & 1u);   /* MRC: a sounding track's mute key lit
+                                                                                       * (not breathing), a spare black dark */
         song.g[G_BPM] = 72;
         a = leds_at(0); b2 = leds_at(250);
         ok &= !((a | b2) >> white(0) & 1u) && !((a | b2) >> white(3) & 1u);   /* 1/8, REVERSE: too long at 72 */
@@ -3238,7 +3259,8 @@ static int test_layer(void)
         song.g[G_BPM] = 120;
     }
     key_up(white(1)); btn_up(B_FX); frame();
-    bad += check("map LEDs: held lit, the 14 effects breathe (1.5.1: D5 E5 the throws), F5 G5 and a too-long REPEAT dark", ok);
+    bad += check("map LEDs: held lit, the 14 effects breathe (1.5.1: D5 E5 the throws), F5 G5 and a too-long REPEAT dark, "
+                 "a sounding track's mute key lit", ok);
     usb.config = 0;
     return bad;
 }
@@ -4149,12 +4171,12 @@ static int test_bughunt_ui(void)
             ui_power_on();
             btn_down(LB[i]); frame();
             press(B_REC);
-            ok &= song.rec == 1u && transport_req == 1u && ui.layer != 0u;
+            ok &= song.rec == 1u && transport_req == 0u && ui.layer != 0u;   /* (MRC: armed; a key starts it) */
             btn_up(LB[i]); frame();
             ok &= ui.home;
         }
     }
-    bad += check("REC in every layer: arms the track and starts PLAY; the layer stays, no page", ok);
+    bad += check("REC in every layer: arms the track (stopped: a key starts PLAY); the layer stays, no page", ok);
     /* 8: the OCT- LED lit in the SET layers (OCT- = UNDO), OCT+ dark; FX (HOLD): the octave as usual */
     ok = 1;
     {
@@ -4363,12 +4385,13 @@ static int test_step_rec(void)
     tap_key(key_at(0, 4));
     ok = grid_on() && t->step[4].hit != 0u;
     press(B_REC);
-    ok &= song.rec == 1u && transport_req == 1u && msg_is("LANE KEYS RECORD");
-    transport_req = 0;                                                /* (armed, still stopped) */
+    ok &= song.rec == 1u && transport_req == 0u && msg_is("KEY STARTS REC");   /* MRC: armed, still stopped */
     tap_key(key_at(0, 6));
+    ok &= transport_req == 1u;                                        /* (the first key starts it) */
+    transport_req = 0;
     tap_key(key_at(0, 4));
     ok &= t->step[6].hit != 0u && !t->step[4].hit && ui.cursor == 4u;
-    bad += check("#133 the DRUM grid unchanged: white keys toggle steps armed or not, REC from stop starts PLAY", ok);
+    bad += check("#133 the DRUM grid unchanged: white keys toggle steps armed or not, REC from stop: the first key starts PLAY", ok);
     song.rec = 0;
     return bad;
 }
@@ -6890,10 +6913,10 @@ static int test_layer_lock(void)
     ui_power_on();
     go_title("ENV"); frame();
     press(B_GLO); press(B_GLO); frames(100);
-    press(B_LFO);
-    ok = !ui.lock && !ui.layer && str_eq(cur_page()->title, "LFO");
+    press(B_LFO);                                       /* (MRC: MOD is LFO's first page) */
+    ok = !ui.lock && !ui.layer && str_eq(cur_page()->title, "MOD");
     press(B_SCL); press(B_SCL); frames(100);
-    ok &= ui.lock == LAYER_SCL && str_eq(cur_page()->title, "LFO");
+    ok &= ui.lock == LAYER_SCL && str_eq(cur_page()->title, "MOD");
     press(B_HOME); frames(16);
     ok &= !ui.lock && !ui.layer && cur_page()->graph == GR_TRK;   /* (MRC: HOME's tap from another page is the MIXER) */
     press(B_GLO); press(B_GLO); frames(100);
@@ -7018,7 +7041,7 @@ static int test_rec_layer(void)
     bad += check("  it opens after MENU > HOLD (0.1 .. 0.6 s), not the old 0.7 s", ok);
     ui_power_on();
     press(B_REC);
-    ok = ui.home && song.rec == 1u && transport_req == 1u && !ui.layer;
+    ok = ui.home && song.rec == 1u && transport_req == 0u && !ui.layer;   /* (MRC: armed; a key starts it) */
     frames(400); transport_req = 0; song.playing = 1;
     press(B_REC);
     ok &= song.rec == 0u && !ui.layer && song.playing;
@@ -7026,7 +7049,7 @@ static int test_rec_layer(void)
     go_page(GR_ROLL); frame(); frames(400);
     press(B_REC);
     ok &= song.rec == 1u && transport_req == 0u && msg_is("KEYS WRITE STEPS");
-    bad += check("  a tap still arms / disarms when let go (HOME starts PLAY, STEP: step recording)", ok);
+    bad += check("  a tap still arms / disarms when let go (HOME: a key starts PLAY, STEP: step recording)", ok);
     ui_power_on();
     rec_down(); frame();
     press(B_PLAY);                                      /* REC + PLAY: PLAY plays, REC let go arms (no map) */
@@ -7172,7 +7195,8 @@ static int test_rec_layer(void)
     go_title("ENV"); frame();
     n = ui.page;
     press(B_REC);
-    ok = song.rec == 1u && transport_req == 1u && msg_is("HOLD [REC] QUICK");   /* (until it has been opened once) */
+    ok = song.rec == 1u && transport_req == 0u && msg_is("KEY STARTS REC");   /* (MRC: stopped, the arming's message, not
+                                                                              * the HOLD [REC] QUICK hint) */
     frames(64);
     press(B_REC);
     frames(500);

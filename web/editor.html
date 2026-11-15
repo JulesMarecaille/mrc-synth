@@ -1793,7 +1793,7 @@ function makeMockDevice(opt = {}) {
   const TP = [
     D("LVL", F.DB, 0, 127, 104),
     D("ATK", F.TIME, 0, 127, 10), D("DEC", F.TIME, 0, 127, 70), D("SUS", F.PCT, 0, 127, 90), D("REL", F.TIME, 0, 127, 60),
-    D("FLT", F.BIPCT, -64, 63, 0), D("PTCH", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("FX", F.BIPCT, -64, 63, 0),
+    D("FLT", F.BIPCT, -64, 63, 0), D("PTCH", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("STRM", F.INT, 0, 120, 0, null, "ms"),   /* (MRC: 8, P_ED_FX's slot) */
     D("RATE", F.LFOHZ, 0, 127, 60), E("WAVE", ["SIN", "TRI", "SAW", "SQR", "S&H"], 0), D("PHS", F.INT, 0, 127, 0), D("FADE", F.TIME, 0, 127, 0),
     D("PTCH", F.BIPCT, -64, 63, 0), D("FLT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("AMP", F.PCT, 0, 127, 0),
     E("MODE", ["OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT", "DNUP", "UP+8", "CONV", "DIVG", "PINKY", "THUMB", "WALK", "CHORD"], 0), E("RATE", NDIV, 2), D("OCT", F.INT, 1, 4, 1), D("GATE", F.PCT, 1, 127, 64),
@@ -1816,7 +1816,7 @@ function makeMockDevice(opt = {}) {
       "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "SLICE"], 0), E("SET", NGO, 0),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     E("TYPE", ["ROOM", "SPRING", "HALL"], 2),       /* G_RTYPE (id 24, was G_DRCH): the reverb's model (HALL: 1.2) */
-    D("-", F.INT, 0, 0, 0), D("-", F.INT, 0, 0, 0),   /* G_DRLVL, G_DRREV: inert since 1.0 */
+    D("PUMP", F.PCT, 0, 127, 0), D("-", F.INT, 0, 0, 0),   /* MRC: G_PUMP (id 25, was G_DRLVL): the DRUM grid's KNOB 3; G_DRREV inert since 1.0 */
   ];
   const NONE = D("-", F.INT, 0, 0, 0);
   const RATIO = [".5", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "16"];
@@ -1911,8 +1911,9 @@ function makeMockDevice(opt = {}) {
     D("SPRD", F.PCT, 0, 127, 0),   /* SPREAD (95, #148) */
     E("INSRT", ["OFF", "SOFT", "HARD", "FOLD", "FUZZ", "CRUSH", "PHASR", "FLANG", "CHOR"], 0),   /* 1.5: the INSERT (96..100) */
     D("INS A", F.PCT, 0, 127, 64), D("INS B", F.PCT, 0, 127, 96), D("INS C", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 127),
-    E("TYPE", ["LP", "BP", "HP"], 0), E("ESYNC", ["OFF", "ON"], 0));   /* 1.5: ANALOG's filter TYPE (101, #104), ENV SYNC (102, #175) */
-  const P_COUNT = 111, G_COUNT = 27, NSTEP = 64, P_E0 = 103, G_ENGSEL = 20, P_SLCR = 45;
+    E("TYPE", ["LP", "BP", "HP"], 0), E("ESYNC", ["OFF", "ON"], 0),   /* 1.5: ANALOG's filter TYPE (101, #104), ENV SYNC (102, #175) */
+    D("LCUT", F.CUTOFF, 0, 127, 0), D("HCUT", F.CUTOFF, 0, 127, 127), D("RES", F.PCT, 0, 127, 0));   /* MRC: the track FILTER (103..105) */
+  const P_COUNT = 114, G_COUNT = 27, NSTEP = 64, P_E0 = 106, G_ENGSEL = 20, P_SLCR = 45;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
@@ -2600,7 +2601,7 @@ const TEXT = {
     deviceRejected: "本体がこの設定を受け付けませんでした。",
     devicePending: "反映しました。再生を停止すると保存されます。",
 
-    other: "English", connect: "接続", disconnect: "切断", mock: "モック（実機なし）",
+    other: "English", tryMock: "実機なしで試す", connect: "接続", disconnect: "切断", mock: "モック（実機なし）",
     sound: "音色", engine: "エンジン", presets: "プリセット", initSound: "音色を初期化",
     track: "トラック",
     saveFile: "ファイルに保存", loadFile: "ファイルを読み込む", projects: "ソングとバックアップ",

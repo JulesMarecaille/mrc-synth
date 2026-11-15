@@ -868,6 +868,45 @@ static int32_t wet[CTL];                                 /* (the dry mix and the
 static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
 #endif
 
+/* MRC: PUMP (G_PUMP, the DRUM grid's KNOB 3), a sidechain: the DRUM parts' level ducks every other part. Each DRUM
+ * part's block peak after its LEVEL (mix_part, mix_spread: pump_pk) feeds one envelope (pump_block: instant attack,
+ * ~90 ms release), full at PUMP_T (a kick at its default LEVEL gets there); the other parts' LEVEL is ramped across
+ * the next block from the last block's gain to the one the envelope gives (a block late: CTL samples, the ramp is
+ * the attack, no click). PUMP 127 and a full envelope: silence at the hit. PUMP 0: gain 1, the mix bit for bit as
+ * before. The cost: a block's few divides, an add and a shift a sample in the mix loops */
+#define PUMP_T 8192
+static int32_t pump_pk[NPART];                          /* the last block's peak of each DRUM part (0: none, or not DRUM) */
+static int32_t pump_env;
+static int32_t pump_g0 = 32768, pump_g1 = 32768;        /* Q15: the ducked parts' gain at the block's start and end */
+static void pump_block(uint32_t n)
+{
+    uint32_t i;
+    int32_t pk = 0, e = pump_env;
+    for (i = 0; i < NPART; i++) {
+        if (pump_pk[i] > pk)
+            pk = pump_pk[i];
+        pump_pk[i] = 0;
+    }
+    e -= ((e * (int32_t)n) >> 12) + (e > 0);            /* (CTL 32: e / 128 a block, 93 ms) */
+    if (pk > PUMP_T)
+        pk = PUMP_T;
+    pump_env = e = pk > e ? pk : e;
+    pump_g0 = pump_g1;
+    pump_g1 = 32768 - (((clamp(song.g[G_PUMP], 0, 127) * 258) * e) >> 13);
+}
+/* the LEVEL of part t over this block, Q20 (Q12 << 8), and its step a sample (*dl): a DRUM part's as it is */
+static inline int32_t pump_lv(const track_t *t, int32_t lvl, int32_t *dl, uint32_t n)
+{
+    int32_t a;
+    if (t->engine == ENGI_DRUM) {
+        *dl = 0;
+        return lvl << 8;
+    }
+    a = (lvl * pump_g0) >> 7;
+    *dl = (((lvl * pump_g1) >> 7) - a) / (int32_t)n;
+    return a;
+}
+
 /* SPREAD (#148): a POLY or UNISON part whose SPRD is above 0. Its voices start left and right of PAN in turn (voice.c
  * voice_start; UNISON's detuned voices alternate), at PAN -/+ SPRD / 2 (SPRD 127: hard left and right), with the pan
  * law PAN has (the far side down, the near one as it is). track_render gives every voice (b, as always) and the left
@@ -886,9 +925,10 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     int32_t gla = 4096 - (pa > 0 ? pa * 64 : 0), gra = 4096 + (pa < 0 ? pa * 64 : 0);
     int32_t glb = 4096 - (pb > 0 ? pb * 64 : 0), grb = 4096 + (pb < 0 ? pb * 64 : 0);
     int32_t glm = (gla + glb) >> 1, grm = (gra + grb) >> 1, gld = (gla - glb) >> 1, grd = (gra - grb) >> 1;
-    int32_t c = t->p[P_CHOR] * 258, dl = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = t->peak;
+    int32_t c = t->p[P_CHOR] * 258, dl = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = 0, lv, lvd;
     int32_t xmax = c > dl ? c : dl;
     xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);
+    lv = pump_lv(t, lvl, &lvd, n);                      /* (PUMP: the LEVEL ducked) */
     for (i = 0; i < n; i++)
         d[i] = (d[i] << 1) - b[i];                      /* left - right */
     track_dist(t, b, n);
@@ -902,8 +942,9 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     if ((pf.mute >> (t - trk)) & 1u)
         perf_mute_sd((uint32_t)(t - trk), b, d, n);
     for (i = 0; i < n; i++) {
-        int32_t x = ((b[i] >> 2) * lvl) >> 10, a = x < 0 ? -x : x, y = ((d[i] >> 2) * lvl) >> 10;
+        int32_t g = lv >> 8, x = ((b[i] >> 2) * g) >> 10, a = x < 0 ? -x : x, y = ((d[i] >> 2) * g) >> 10;
         int32_t xs = clamp(x, -xmax, xmax);
+        lv += lvd;
         if (a > pk)
             pk = a;
         if (c)
@@ -915,7 +956,10 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
         SM(l)[i] += ((x * glm) >> 12) + ((y * gld) >> 12);
         SM(r)[i] += ((x * grm) >> 12) + ((y * grd) >> 12);
     }
-    t->peak = pk;
+    if (pk > t->peak)
+        t->peak = pk;
+    if (t->engine == ENGI_DRUM)
+        pump_pk[(uint32_t)(t - trk) % NPART] = pk;
 }
 
 /* a part's cost for the second core's split (mix_split, after Jangada's): its voices x its engine's cost per
@@ -981,12 +1025,13 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                                                          * them, no spill in the loop: the ISR's cost as before 1.5) */
         int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
         int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
-        int32_t c = t->p[P_CHOR] * 258, d = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = t->peak;
-        int32_t xmax = c > d ? c : d;
+        int32_t c = t->p[P_CHOR] * 258, d = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = 0, lvd;
+        int32_t xmax = c > d ? c : d, lv = pump_lv(t, lvl, &lvd, n);   /* (PUMP: the LEVEL ducked) */
         xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
         for (i = 0; i < n; i++) {
-            int32_t x = ((b[i] >> 2) * lvl) >> 10, a = x < 0 ? -x : x;   /* pre-shift: 8 loud voices */
+            int32_t x = ((b[i] >> 2) * (lv >> 8)) >> 10, a = x < 0 ? -x : x;   /* pre-shift: 8 loud voices */
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
+            lv += lvd;
             if (a > pk)
                 pk = a;
             if (c)
@@ -998,7 +1043,10 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
             SM(l)[i] += (x * gl) >> 12;
             SM(r)[i] += (x * gr) >> 12;
         }
-        t->peak = pk;
+        if (pk > t->peak)
+            t->peak = pk;
+        if (t->engine == ENGI_DRUM)
+            pump_pk[(uint32_t)(t - trk) % NPART] = pk;  /* (PUMP: the sidechain, pump_block) */
     }
     if (pf.thr)
         perf_throw(t, b, SM(d), SM(v), n);              /* perform.c: REV / ECHO THROW (1.5.1), the sends towards full */
@@ -1103,6 +1151,7 @@ static void mix_block(int32_t *out, uint32_t n)
     for (i = 0; i < n; i++)
         send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     events_block(n);
+    pump_block(n);                                      /* MRC: PUMP, the ducked parts' gain from the last block's DRUM */
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
 #if FELUCCA_CPU2
     uint32_t m = C1_ON() ? C1_SPLIT() & ((1u << NPART) - 1u) : 0u;

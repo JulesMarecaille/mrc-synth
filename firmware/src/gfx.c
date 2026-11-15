@@ -132,12 +132,21 @@ static inline int ux_is_grey(uint16_t c)
 {
     return (uint32_t)(c >> 11) == (uint32_t)(c & 31u) && (uint32_t)((c >> 5) & 63u) == 2u * (uint32_t)(c & 31u);
 }
+/* MRC: MONO's blends (ux_mix) on the grey axis too, white (0xFFFF, g == 2 r + 1) a grey: a channel apiece left the DLY,
+ * REVERB, EDIT and VOICE drawings a step off grey (green). The text ramps (ramp) as before */
+static inline int ux_mix_grey(uint16_t a, uint16_t b)
+{
+    if (ux.mono)
+        return ux_is_grey(a) && ux_is_grey(b);
+    return ux.pal == UI_BW_INDEX && (a >> 11) == (a & 31u) && ((a >> 5) & 63u) >> 1 == (a & 31u) &&
+           (b >> 11) == (b & 31u) && ((b >> 5) & 63u) >> 1 == (b & 31u);
+}
 /* a + (b - a) * pct / 100 per channel, rounded; MRC on the red channel, so it stays gray */
 static uint16_t ux_mix(uint16_t a, uint16_t b, int32_t pct)
 {
     static const uint8_t SH[3] = {11, 5, 0}, MK[3] = {31, 63, 31};
     uint32_t out = 0, k;
-    if (ux.mono && ux_is_grey(a) && ux_is_grey(b)) {
+    if (ux_mix_grey(a, b) && pct > 0 && pct < 100) {   /* (MRC: the ends as the channels give them: white stays 0xFFFF) */
         int32_t x = a >> 11, d = ((b >> 11) - x) * pct;
         return ux_gray((uint32_t)(x + (d + (d >= 0 ? 50 : -50)) / 100));
     }

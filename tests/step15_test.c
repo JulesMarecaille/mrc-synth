@@ -5,7 +5,7 @@
  *         step; a chord ties whole), stopping at the next step holding notes (NOTE AHEAD; a REST's kept notes too) and
  *         at LEN (END OF PATTERN); left turns its last TIEs back into RESTs, never the note itself; nothing else moves
  *         (the steps' locks stay); one undo per turn (SAVE held), redo; on a REST / TIE / empty step KNOB 3 is TIME as
- *         before; the DRUM grid's KNOB 3 is still HIT. Played: one note-on, held to the end of its last TIE (as a
+ *         before; the DRUM grid's KNOB 3 is PUMP (MRC: was HIT). Played: one note-on, held to the end of its last TIE (as a
  *         recorded hold plays).
  *   VEL   step_t.vel as it plays (seq.c seq_step: 0 = 96, ACC 127, a DRUM step's accented hit 127, its other hits the
  *         step's); SEQ > AUTOMATION: no VEL rows until + ADD VEL's OCT+ (SHOW) lists every note step inside LEN, KNOB 4
@@ -141,7 +141,7 @@ static int len_edit(void)
     ok &= note_len(t, 3) == 1u && msg_is("NOTE AHEAD") && t->step[4].hit == 1u;
     bad += check("  a REST / TIE / empty step: KNOB 3 TIME (NOTE TIE REST); a REST keeping notes or hits is kept", ok);
 
-    ui_power_on();                                    /* the DRUM grid: KNOB 3 is still HIT */
+    ui_power_on();                                    /* the DRUM grid: KNOB 3 is PUMP (MRC: was HIT), not LEN */
     song.sel = 3;
     t = &trk[3];
     track_defaults_steps(t);
@@ -151,11 +151,12 @@ static int len_edit(void)
     ui.lane = 0;
     frame();
     grid_hit(t, 2, 0, 1);
+    song.g[G_PUMP] = 0;
     turn(EN_K3, 1);
-    ok = drum_track(t) && t->step[3].time != ST_TIE && (step_lanes(&t->step[2]) & 1u);
+    ok = drum_track(t) && t->step[3].time != ST_TIE && (step_lanes(&t->step[2]) & 1u) && song.g[G_PUMP] > 0;
     turn(EN_K3, -1);
-    ok &= !(step_lanes(&t->step[2]) & 1u) && t->step[3].time != ST_TIE;
-    bad += check("  the DRUM grid: KNOB 3 HIT as before, no TIE written", ok);
+    ok &= (step_lanes(&t->step[2]) & 1u) && t->step[3].time != ST_TIE && song.g[G_PUMP] == 0;
+    bad += check("  the DRUM grid: KNOB 3 PUMP, the hit kept, no TIE written", ok);
     return bad;
 }
 

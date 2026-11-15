@@ -653,7 +653,9 @@ static void page_go(int32_t d)
     cursor_move((int32_t)(b * 16u + ui.cursor % 16u < len ? b * 16u + ui.cursor % 16u : len - 1u));
 }
 
-/* the grid's knobs: 1 STEP (the cursor), 2 LANE, 3 HIT and 4 ACC of the lane at the cursor (right on, left off) */
+/* the grid's knobs: 1 STEP (the cursor), 2 LANE, 3 PUMP, 4 ACC of the lane at the cursor (right on, left off). MRC:
+ * KNOB 3 was HIT (the white keys toggle hits); now PUMP, the global G_PUMP (fx.c pump_block: how far the DRUM tracks
+ * duck the others), a mix setting, so turned while a song plays too */
 static void grid_edit(uint32_t slot, int32_t steps)
 {
     if (slot == 0u)
@@ -661,7 +663,7 @@ static void grid_edit(uint32_t slot, int32_t steps)
     else if (slot == 1u)
         ui.lane = (uint8_t)clamp((int32_t)ui.lane + (steps > 0 ? 1 : -1), 0, NLANE - 1);
     else if (slot == 2u)
-        grid_hit(TSEL, ui.cursor, ui.lane, steps > 0);
+        song.g[G_PUMP] = (int16_t)param_turn(&GP[G_PUMP], song.g[G_PUMP], accel(EN_K3, steps, GP[G_PUMP].max));
     else
         grid_acc(TSEL, ui.cursor, ui.lane, steps > 0);
 }
@@ -980,7 +982,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     if (chain_busy() && (pg->scope == SC_STEP || pg->graph == GR_STEPS ||
-        0)) {
+        0) && !(slot == 2u && drum_track(TSEL) && !detail_on())) {   /* (MRC: the grid's PUMP is the mix's, not the steps') */
         ui_message("STOP TO EDIT"); return;
     }
     if (pg->scope == SC_STEP) {

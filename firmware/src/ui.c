@@ -596,7 +596,7 @@ static uint32_t note_set_len(track_t *t, uint32_t i, uint32_t want)
 /* SEQ > STEP on a DRUM track is the grid: 8 lanes x the 16 steps of a page. The white keys are the
  * steps of the page shown (a tap toggles the selected lane there), black keys 1..8 select the lane (and play
  * it), black key 9 held is ACC (white keys toggle accents, their LEDs show them), black keys 10 / 11 the page
- * down / up. KNOB 1 STEP, 2 LANE, 3 HIT, 4 ACC edit the cursor step. A sound load never converts the
+ * down / up. KNOB 1 STEP, 2 LANE, 4 ACC edit the cursor step, 3 is PUMP (MRC: was HIT; ui_input.c grid_edit). A sound load never converts the
  * steps: the grid shows a step's notes on their lanes (eng_drum.c step_lanes) and an edit makes the lane its
  * own (grid_own). Live recording on a DRUM track writes hits (seq.c rec_note) */
 static int grid_on(void) { return !ui.home && !ui.menu && !ui.confirm && cur_page()->graph == GR_ROLL && drum_track(TSEL); }

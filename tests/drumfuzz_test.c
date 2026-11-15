@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* #211 stress: a synth sequence playing on track 1 while the DRUM grid of track 4 is programmed at random (grid keys,
- * held steps + knobs = locks, lanes, HIT / ACC, EDIT, pages, SEQ TOOLS, undo, engine switches, kits, buttons, menus),
+ * held steps + knobs = locks, lanes, PUMP / ACC, EDIT, pages, SEQ TOOLS, undo, engine switches, kits, buttons, menus),
  * the MENU at random (HELP, LARGE, STEP PREVIEW ..), the audio rendered between the inputs (24 blocks a frame, as the
  * ISR does) and, with -DPREEMPT, also from a CPU-time signal anywhere in the main loop (fm1_irq_off and motion_guard
  * hold it off, as on the device). "song": a SONG of two saved projects plays instead of PLAY. Each input step has a 5 s
@@ -146,7 +146,7 @@ static void one_step(void)
         fz_key(key_at(1, GK_ACC), 1); fz_frame();
         k = key_at(0, rnd(16)); fz_key(k, 1); fz_frame(); fz_key(k, 0); fz_frame();
         fm1_in.notes = 0; fz_frame();
-    } else if (a < 55) {                                  /* knobs (STEP LANE HIT ACC on the grid, else that page's) */
+    } else if (a < 55) {                                  /* knobs (STEP LANE PUMP ACC on the grid, else that page's) */
         fz_what = "knob";
         fz_turn(EN_K1 + rnd(4), (int32_t)rnd(21) - 10);
     } else if (a < 58) {

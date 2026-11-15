@@ -37,7 +37,7 @@
 #                   pages (each byte alone, SLOT OWN, the sound, undo, the macros, the project / user presets),
 #                   the DRUM grid (keys, knobs, LEDs, pages, live recording into it, BEAT from PATTERNS).
 # DRUM STRESS (tests/drumfuzz_test.c, #211): ASan / UBSan, a synth sequence playing while the DRUM grid is edited at random
-#                   (keys, locks, lanes, HIT / ACC, EDIT, undo, SEQ TOOLS, engines, kits, the MENU), the audio ISR emulated
+#                   (keys, locks, lanes, PUMP / ACC, EDIT, undo, SEQ TOOLS, engines, kits, the MENU), the audio ISR emulated
 #                   anywhere in the main loop; also with a SONG playing; a step over 5 s is a hang.
 # Audio / persistence / editor: the real C paths against simulated DMA and NOR flash: bounded overload
 #                   fades, shared-voice limits, deferred settings and retries, failed-save rollback, the autosave

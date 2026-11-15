@@ -221,10 +221,10 @@ static const param_desc_t GP[G_COUNT] = {
     [G_INITSND] = PE("INIT", N_GO, 0),
     /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
     [G_RTYPE] = PE("TYPE", N_RTYPE, 2),         /* HALL at power-on since 1.2 (ROOM before; projects keep theirs) */
-    /* inert: they set the GM drum part (level, reverb send), which is gone (drums are the DRUM engine
-     * on any part). On no page; kept so the ids and G_COUNT, which the project format and the
-     * editor protocol depend on, do not move */
-    [G_DRLVL] = PD("-", F_INT, 0, 0, 0),
+    /* G_DRLVL / G_DRREV set the GM drum part (level, reverb send), which is gone (drums are the DRUM engine on any
+     * part). Their ids and G_COUNT, which the project format and the editor protocol depend on, do not move. MRC:
+     * G_DRLVL's slot is PUMP, the DRUM grid's KNOB 3 (a project of before stored 0 there: PUMP off) */
+    [G_PUMP] = PD("PUMP", F_PCT, 0, 127, 0),
     [G_DRREV] = PD("-", F_INT, 0, 0, 0),
 };
 

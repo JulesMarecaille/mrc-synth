@@ -44,9 +44,9 @@ int main(void)
                  P_ITYPE + 4 == P_IMIX && P_IMIX + 1 == P_FTYPE && P_FTYPE + 1 == P_ESYNC && P_ESYNC + 1 == P_TLC && P_TRES + 1 == P_E0 && P_E0 == 106);
     bad += check("FUN10 fits one flash object (3840 bytes)", sizeof(project_store_t) <= 4096u - 256u &&
                  sizeof(project_store_t) == 3840u);
-    bad += check("FUN10 name at the end of the reserved tail, the FM6 patches before it, after the data (16 spare)",
-                 PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u &&
-                 at + sizeof(chain_config_t) + sizeof(motion_store_t) + 16u == PROJ_FM6_OFF);
+    bad += check("FUN10 name at the end of the reserved tail, the FM6 patches before it, after the data (4 spare)",
+                 PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u &&     /* MRC: the track FILTER took 12 of the 16 */
+                 at + sizeof(chain_config_t) + sizeof(motion_store_t) + 4u == PROJ_FM6_OFF);
 
     /* the name: the reserved tail's last 12 bytes, covered by the hash; zero = no name */
     blank(&a);

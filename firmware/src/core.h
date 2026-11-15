@@ -97,7 +97,8 @@ enum {                          /* global parameters */
     G_CLRSEQ, G_INITSND,
     G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING, 2 HALL (1.2, the power-on default) (fx.c). Was
                                  * G_DRCH, the GM drum part's MIDI channel (inert since 1.0, never read) */
-    G_DRLVL, G_DRREV,           /* inert (label "-", on no page): the GM drum part they set is gone; kept
+    G_PUMP, G_DRREV,            /* MRC: G_PUMP (was G_DRLVL), the DRUM grid's KNOB 3, how far the DRUM tracks duck the
+                                 * others (fx.c pump_*). G_DRREV inert (label "-", on no page): the GM drum part it set is gone; kept
                                  * because the ids and G_COUNT are fixed by the format and the protocol */
     G_COUNT
 };

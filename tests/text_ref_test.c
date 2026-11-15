@@ -23,7 +23,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "../firmware/src/gfx.c"
 
 static const char *const STR[] = {
-    "CUTOFF", "RESO", "ATK", "DEC", "LEVEL", "PAN", "REV", "MUTE", "STEP", "LANE", "HIT", "ACC", "No.",
+    "CUTOFF", "RESO", "ATK", "DEC", "LEVEL", "PAN", "REV", "MUTE", "STEP", "LANE", "PUMP", "ACC", "No.",
     "124", "1234.5", "-12", "+3", "0.87", "100 %", "/32", "C#4", "ANALOG", "DIGITAL", "OFF", "ON",
     "OVERWRITE PROJECT A?", "SONG PATTERN CHANGES", "OCT-   NO", "OCT+   YES", "PRESETS", "MOVE", "BACK",
     "AV AW LT TA YO To Vo", "KEYS = STEPS", "PAGE 1/2", "HARDWARE CALIBRATION", "Multi-engine synthesizer",

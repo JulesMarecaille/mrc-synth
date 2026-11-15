@@ -31,7 +31,8 @@
  * 10. the model kits (KIT 80 10 66 55 77): every lane of each at its design against its targets (t-30, centroid
  *    as 1., the level of its lane on STD), DC, its end; DECAY / TUNE / TONE / SNAP each move it; the corners under
  *    full scale; a retrigger the same; every GM note on its lane's piece, the lanes through the engine; the cost of
- *    a kit's 8 lanes at once. */
+ *    a kit's 8 lanes at once.
+ * 11. MRC: PUMP (pump below): a kick ducks the other parts by PUMP, the DRUM part never, PUMP 0 not at all. */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -1369,6 +1370,65 @@ static void demos(const char *dir)
            "keys, a beat (PUNCH, ROUND, the kits 80 10 66 55 77)\n", dir, (uint32_t)DVT_COUNT);
 }
 
+/* MRC: PUMP (G_PUMP, the DRUM grid's KNOB 3; fx.c pump_block): part 1 DRUM, part 2 an ANALOG note held. The held
+ * note's peak after its LEVEL (trk[1].peak) over the 10 .. 60 ms after a kick, against the same before it: PUMP 0
+ * leaves it as it is, PUMP 127 with no kick too (gain 1 all the way: nothing on the DRUM part sounds); PUMP 127 ducks
+ * it below a quarter, PUMP 64 between the two; the DRUM part itself is never ducked; 1 s later the gain is back near 1 */
+static int32_t pump_run(int16_t amt, int kick, int32_t *gmin)
+{
+    int32_t o[2 * CTL], g = 32768;
+    uint32_t i;
+    kit_fresh();
+    memset(trk[1].v, 0, sizeof trk[1].v);
+    host_preset(&trk[1], 0, 0);                         /* ANALOG's first sound */
+    song.g[G_PUMP] = amt;
+    pump_env = 0;
+    pump_g0 = pump_g1 = 32768;
+    memset(pump_pk, 0, sizeof pump_pk);
+    trk_note_on(&trk[1], 60, 100);
+    for (i = 0; i < 400u; i++)                          /* 290 ms: past the attack */
+        mix_block(o, CTL);
+    if (kick)
+        trk_note_on(&trk[0], 36, 120);
+    for (i = 0; i < 14u; i++)                           /* (10 ms) */
+        mix_block(o, CTL);
+    trk[1].peak = 0;
+    for (i = 0; i < 68u; i++) {                         /* 10 .. 60 ms */
+        mix_block(o, CTL);
+        g = pump_g1 < g ? pump_g1 : g;
+    }
+    if (gmin)
+        *gmin = g;
+    return trk[1].peak;
+}
+
+static void pump(void)
+{
+    int32_t base, p0, p64, p127, lvd = 1, lv, q, gq;
+    uint32_t i, back;
+    int32_t o[2 * CTL];
+    base = pump_run(0, 0, 0);
+    p0 = pump_run(0, 1, 0);
+    p64 = pump_run(64, 1, 0);
+    p127 = pump_run(127, 1, 0);
+    lv = pump_lv(&trk[0], 4096, &lvd, CTL);             /* (the DRUM part, a full envelope just now) */
+    for (i = 0; i < 1400u; i++)                         /* 1 s on, nothing struck */
+        mix_block(o, CTL);
+    back = pump_g1 > 32000;
+    q = pump_run(127, 0, &gq);                          /* PUMP 127, no kick */
+    if (base < 1000 || p0 != base || q != base || gq != 32768 || p127 * 4 > base || !(p64 < p0 && p64 > p127) ||
+        lv != 4096 << 8 || lvd || !back) {
+        printf("drum_test: PUMP: the held note %d alone, %d at PUMP 0 after a kick, %d at 64, %d at 127; %d at 127 with "
+               "no kick (gain %d); DRUM part unducked %d; back after 1 s %u: FAIL\n", base, p0, p64, p127, q, gq,
+               lv == 4096 << 8 && !lvd, back);
+        fails++;
+    } else {
+        printf("drum_test: PUMP: a kick ducks the other part (peak %d -> %d at 64, %d at 127), PUMP 0 none, the DRUM part "
+               "never, back in 1 s: ok\n", base, p64, p127);
+    }
+    song.g[G_PUMP] = 0;
+}
+
 int main(int argc, char **argv)
 {
     if (!getenv("NOCOST")) {
@@ -1388,6 +1448,7 @@ int main(int argc, char **argv)
     lane_budget();
     lane_levels();
     engine();
+    pump();
     if (argc > 1)
         demos(argv[1]);
     printf("drum_test: %s\n", fails ? "FAILED" : "all checks ok");

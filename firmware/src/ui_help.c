@@ -38,7 +38,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"OP ENV", H_FMOP},
     {"OPERATOR 2", H_FMOP},
     {"VOICE", "[K1]POLY, MONO[K2]DETUNE[K3]PAN"},
-    {"VOICE 2", "[K2]GLIDE"},
+    {"VOICE 2", "[K2]GLIDE[K4]PRIORITY"},   /* (MRC: a hint is two or three: test_help) */
     {"VOICE 3", "[K1]STEREO SPREAD[EDIT]EDIT 1"},
     {"SONG", "[K1]SECTION[K3]PATTERN[PLAY]SONG"},   /* (MRC: KNOB 3 the pattern; upstream the keys A-D) */
     {"USER", "[K1]SLOT[OCT+]SAVE[SAVE]PATTERN"},   /* (MRC: PRESETS, PATTERNS, CLEAR are GLO's) */
@@ -55,7 +55,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
 };
 #define H_HOME "[PRESETS]SOUND[HOME]HOLD: MENU"
 #define H_LEVELS "[K1-4]T1-T4 LEVEL[HOME]MIXER"
-#define H_GRID "[KEYS]STEPS[K2]LANE[SEQ]RATCH"
+#define H_GRID "[KEYS]STEPS[K3]PUMP[SEQ]RATCH"   /* (MRC: KNOB 3 PUMP, the DRUM tracks duck the rest) */
 /* a layer's (LAYER_*): what its footer row (LAYERS[].foot) does not say */
 static const char *const HELP_LAYER[LAYER_N] = {
     "", "[KEYS]BLACK: MUTES[FX]2 TAPS: LOCK", "[KEYS]SOLO MUTE FILL TAP[K1-4]LEVELS", "[KEYS]ROOT[K1-4]ROOT SCL CHORD",

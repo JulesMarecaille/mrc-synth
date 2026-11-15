@@ -901,7 +901,7 @@ static int menu_protocol(void)
         {"T1 CHANNEL", TCH_NAMES}, {"T2 CHANNEL", TCH_NAMES}, {"T3 CHANNEL", TCH_NAMES}, {"T4 CHANNEL", TCH_NAMES},   /* (1.5.5) */
         {"AUTO SELECT", "OFF,ON"}, {"SCREEN WAKE", "+MIDI,PANEL"},                                   /* (1.5.5) */
         {"2ND CORE", "OFF,ON (BETA)"}};                                                           /* (1.6.1; OFF the default) */
-    static const int32_t DEF[33] = {-1, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 2, 3, 0, 0, 0};   /* (COLOR: the default palette) */
+    static const int32_t DEF[33] = {-1, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 2, 3, 0, 0, 0};   /* (COLOR: the default palette; MRC: HOLD 0.4 s, 3 of six) */
     static const uint8_t TAB[33] = {0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 4, 2, 2, 2, 4, 1, 0, 0, 1, 1, 3, 2, 0, 4, 1, 3, 3, 3, 3, 3, 3, 4};   /* DISPLAY CONTROL AUDIO
                                                                                                          * MIDI SYSTEM (1.2) */
     static const char *const TABN[5] = {"DISPLAY", "CONTROL", "AUDIO", "MIDI", "SYSTEM"};
@@ -1005,7 +1005,7 @@ static int menu_protocol(void)
     ok &= menu_set(32, 1) == 1 && ui_prefs2 == 0x3Bu;   /* (no 2ND CORE in a FELUCCA_CPU2=0 build: an unknown id, nothing set) */
 #endif
     for (i = 0; i < MENU_N; i++) {                         /* MENU_DESC reads them back */
-        static const int32_t SET[33] = {2, 1, 1, 1, 1, 3, 1, 1, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 1, 1, 1, 2, -13, 1, 1, 1, 9, 16, 17, 0, 1, 1, 1};
+        static const int32_t SET[33] = {2, 1, 1, 1, 1, 5, 1, 1, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 1, 1, 1, 2, -13, 1, 1, 1, 9, 16, 17, 0, 1, 1, 1};   /* (MRC: HOLD 5, the sixth step) */
         menu_desc(i, &it);
         ok &= it.value == SET[MENU_ID(i)];
     }
