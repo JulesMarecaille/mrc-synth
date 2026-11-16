@@ -5,7 +5,7 @@ MRC Synth is a modified version of [Felucca](https://github.com/hugelton/Felucca
 
 | Change | Where |
 | --- | --- |
-| Brand colours (`MRC_TEXT_COLOR`, `MRC_BG_COLOR`, `MRC_ACCENT_1..4_COLOR`) | `firmware/src/mrc_theme.h` |
+| Brand colours (`MRC_TEXT_COLOR`, `MRC_BG_COLOR`, `MRC_ACCENT_1..4_COLOR`); the four accents are saturated (the panel washes colour out), the same on the device and the web pages | `firmware/src/mrc_theme.h` |
 | MRC palette: BG/SURF stay grey, TEXT/THEME are a cream, ACCENT is mint; the generator's grey check covers BG/SURF only and its `mix` collapses to grey only between two grey colours, as `ux_mix` does | `tools/gen_ui_palettes.py` `PALETTES`, `is_grey`, `mix` |
 | Boot screen: MRC / synth / four colour bands, fixed colours | `ui_draw.c` `draw_splash` |
 | Boot screen animated: MRC drops in a letter at a time, in a burst of star particles, "synth" closes in from wide spacing (no stars); the bands slide in, alternating sides, staggered. Redrawn each ~10 ms of the splash by the clock; MENU > ANIM OFF: the still | `ui_draw.c` `splash_at`, `spl_burst`, `main.c`, `web/emu/felucca_web.c` `web_ms` |

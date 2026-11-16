@@ -6,7 +6,7 @@
 <title>PHASE Duel</title>
 <style>
   :root { --bg:#141414; --surf:#1f1f1f; --raise:#2a2a2a; --text:#E4DCC8; --mid:#8a8578; --dim:#4a4740;
-          --a1:#FBE8A6; --a2:#F3BA5A; --a3:#F79B7A; --a4:#EB5560; }
+          --a1:#FFE070; --a2:#FFA820; --a3:#FF7448; --a4:#FF2E48; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace,Consolas,monospace; }
   main { max-width:900px; margin:0 auto; padding:20px 16px 40px; }
@@ -201,7 +201,7 @@ document.getElementById("sound").onclick = e => {
 /* ---- the picture: 240 x 140, the FM-1's graph area ---- */
 const cv = document.getElementById("cv"), g = cv.getContext("2d");
 const W = 240, H = 140, GROUND = 122, C = { bg:"#141414", text:"#E4DCC8", mid:"#8a8578", dim:"#4a4740",
-  a1:"#FBE8A6", a2:"#F3BA5A", a3:"#F79B7A", a4:"#EB5560" };
+  a1:"#FFE070", a2:"#FFA820", a3:"#FF7448", a4:"#FF2E48" };
 let t = 0, flash = 0, last = performance.now(), clashX = 120, wasCasting = false, trickle = 0;
 
 function line(pts, col, a = 1, wdt = 1) {

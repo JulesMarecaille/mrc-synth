@@ -13,10 +13,12 @@
 
 #define MRC_TEXT_COLOR     0xE6F9u    /* #E4DCC8, the MRC palette's TEXT (tools/gen_ui_palettes.py) */
 #define MRC_BG_COLOR       0x0000u    /* #000000, the MRC palette's BG */
-#define MRC_ACCENT_1_COLOR 0xFF54u    /* #FBE8A6 */
-#define MRC_ACCENT_2_COLOR 0xF5CBu    /* #F3BA5A */
-#define MRC_ACCENT_3_COLOR 0xF4CFu    /* #F79B7A */
-#define MRC_ACCENT_4_COLOR 0xEAACu    /* #EB5560 */
+/* the accents are saturated (once #FBE8A6 #F3BA5A #F79B7A #EB5560, same hues): the FM-1's panel washes colour
+ * out and the pastels looked faded on it. The web pages' --a1..--a4 carry the same values. */
+#define MRC_ACCENT_1_COLOR 0xFEEEu    /* #FFE070 */
+#define MRC_ACCENT_2_COLOR 0xFD44u    /* #FFA820 */
+#define MRC_ACCENT_3_COLOR 0xFBA9u    /* #FF7448 */
+#define MRC_ACCENT_4_COLOR 0xF969u    /* #FF2E48 */
 
 /* the four accents in order, for the things there are four of: the knob cards (ui_draw.c draw_column) and
  * the FX sends (ui_graph.c graph_fx) */

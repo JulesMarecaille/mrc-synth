@@ -6,7 +6,7 @@
 <title>NOISE Visuals</title>
 <style>
   :root { --bg:#141414; --surf:#1f1f1f; --raise:#2a2a2a; --text:#E4DCC8; --mid:#8a8578; --dim:#4a4740; --line:#2e2c28;
-          --a1:#FBE8A6; --a2:#F3BA5A; --a3:#F79B7A; --a4:#EB5560; --cw:480px; }
+          --a1:#FFE070; --a2:#FFA820; --a3:#FF7448; --a4:#FF2E48; --cw:480px; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace,Consolas,monospace; }
   main { max-width:1520px; margin:0 auto; padding:20px 16px 40px; }
@@ -321,7 +321,7 @@ function fbm(x, y, z, tilt, oct) {
 /* ================= helpers ================= */
 const W = 240, H = 140;
 const C = { bg: "#141414", text: "#E4DCC8", mid: "#8a8578", dim: "#4a4740" };
-const ACC = ["#FBE8A6", "#F3BA5A", "#F79B7A", "#EB5560"];
+const ACC = ["#FFE070", "#FFA820", "#FF7448", "#FF2E48"];
 let pal = "mrc";
 const K = i => pal === "mrc" ? ACC[i & 3] : C.text;    /* knob k's accent (k % 4), or THEME in the other palettes */
 const clamp = (x, a, b) => x < a ? a : x > b ? b : x;

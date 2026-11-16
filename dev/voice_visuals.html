@@ -6,7 +6,7 @@
 <title>VOICE Pages Visuals</title>
 <style>
   :root { --bg:#141414; --surf:#1f1f1f; --raise:#2a2a2a; --text:#E4DCC8; --mid:#8a8578; --dim:#4a4740; --line:#2e2c28;
-          --a1:#FBE8A6; --a2:#F3BA5A; --a3:#F79B7A; --a4:#EB5560; --cw:480px; }
+          --a1:#FFE070; --a2:#FFA820; --a3:#FF7448; --a4:#FF2E48; --cw:480px; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace,Consolas,monospace; }
   main { max-width:1520px; margin:0 auto; padding:20px 16px 40px; }
@@ -142,7 +142,7 @@ const fmt = (k, v) => k === "PAN" ? (v === 0 ? "C" : (v < 0 ? "L" : "R") + Math.
   k === "SPRD" ? Math.round(v * 100 / 127) + "%" : k === "GLD" ? (v ? glideS(v).toFixed(2) + "s" : "OFF") : String(v);
 
 /* ================= colours ================= */
-const ACC = ["#FBE8A6", "#F3BA5A", "#F79B7A", "#EB5560"];      /* mrc_theme.h MRC_ACCENT */
+const ACC = ["#FFE070", "#FFA820", "#FF7448", "#FF2E48"];      /* mrc_theme.h MRC_ACCENT */
 const C = { bg: "#141414", text: "#E4DCC8", mid: "#8a8578", dim: "#4a4740", line: "#2e2c28", mono: "#3DDC97" };
 const BGRGB = [20, 20, 20];
 let pal = "mrc";

@@ -14,7 +14,7 @@
   canvas { display:block; image-rendering:pixelated; max-width:100%; height:auto; }
   .bar { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:12px 0; color:var(--mid); }
   .bar button, .bar select { background:var(--surf); color:var(--text); border:1px solid var(--line); border-radius:3px; padding:4px 10px; font:inherit; cursor:pointer; }
-  .bar button.on { border-color:#F3BA5A; color:#F3BA5A; }
+  .bar button.on { border-color:#FFA820; color:#FFA820; }
   .pages { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
   fieldset { border:1px solid var(--line); border-radius:4px; padding:8px 12px 10px; margin:0; }
   legend { color:var(--mid); padding:0 6px; }
@@ -26,7 +26,7 @@
   .keys div { position:absolute; top:0; border:1px solid var(--line); border-radius:0 0 3px 3px; box-sizing:border-box; }
   .keys .w { background:#d8d0bc; height:84px; width:34px; }
   .keys .b { background:#2a2926; height:52px; width:22px; z-index:1; }
-  .keys .down { background:#F79B7A !important; }
+  .keys .down { background:#FF7448 !important; }
   .keys small { position:absolute; bottom:3px; width:100%; text-align:center; color:#555; font-size:10px; }
   .keys .b small { color:#888; }
   ul { color:var(--mid); padding-left:18px; }
@@ -197,7 +197,7 @@ const PRESETS = [
   ["WOW BASS", [95, 0, 68, 0, 100, 0, 80, 0], [0, 70, 70, 30]],
   ["WHISPER", [0, 95, 88, 3, 50, 120, 50, 0], [50, 90, 110, 90]],
 ];
-const ACC = ["#FBE8A6", "#F3BA5A", "#F79B7A", "#EB5560"];      /* mrc_theme.h MRC_ACCENT */
+const ACC = ["#FFE070", "#FFA820", "#FF7448", "#FF2E48"];      /* mrc_theme.h MRC_ACCENT */
 const SURF = [30, 30, 30], MID = "#A6A092", DIM = "#6E6A5F", TEXT = "#E4DCC8", MONO_C = "#3DDC97";
 const v = P.map(p => p[3]), amp = AMP.map(p => p[3]);
 let mono = false, mode = "word";
