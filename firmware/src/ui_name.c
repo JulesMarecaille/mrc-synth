@@ -466,7 +466,5 @@ static void name_draw(void)
         ui.msg_t = 60;
     }
     pre_tick();
-    if (ui.bpm_t)
-        ui.bpm_t--;
     ui.force = 0;
 }

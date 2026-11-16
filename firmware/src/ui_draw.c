@@ -353,7 +353,7 @@ static void draw_head(void)
 
 /* MRC: the tempo, full screen, for as long as it is being changed (ui.bpm_t, a SELECT turn). It left the header
  * for this: the metronome and the digits are the only thing on the screen while the knob moves, and the page comes
- * back whole when the frames run out (ui_draw_page). The digits are set in X (64 px, the biggest face there is),
+ * back whole BPM_MS after the last change (ui_draw_page). The digits are set in X (64 px, the biggest face there is),
  * the metronome 40 px beside them, "BPM" in L under the lot, and BPM LOCK ON puts its lock after the digits.
  * Palette tokens: this is the running UI, not the boot screen. */
 #define BPMF_ICON 40                                   /* the metronome's cell (its ink is narrower: mb) */
@@ -409,10 +409,13 @@ static void draw_saved_full(void)
  * neighbours in S (ui_graph.c pref_row, the PRESETS page's too). The canvas holds 140 rows, so the list goes out in
  * several blits */
 #define PRE_MS 1000u                                    /* the list closes this long after the last detent */
-static void pre_tick(void)                              /* (ui.pre_t: every draw path, whatever is on screen) */
+#define BPM_MS 1000u                                    /* the tempo's screen, this long after its last change */
+static void pre_tick(void)                              /* (ui.pre_t, ui.bpm_t: every draw path, whatever is on screen) */
 {
     if (ui.pre_t && fm1_ms - ui.pre_ms >= PRE_MS)
         ui.pre_t = 0;
+    if (ui.bpm_t && fm1_ms - ui.bpm_ms >= BPM_MS)
+        ui.bpm_t = 0;
 }
 #define PREF_ROWS 11
 #define PREF_Y0 (H_HEAD + HALF_UP(240 - H_HEAD - ((PREF_ROWS - 1) * PREF_H + PREF_HC)))
@@ -1732,7 +1735,8 @@ static void ui_draw_page(uint32_t counting)
     }
     if (ui.bpm_t && !ui.confirm && !name_on()) {        /* MRC: the tempo, full screen, while it is changed */
         draw_bpm_full();                                /* (the whole screen: a pending force is done) */
-        ui.force = !--ui.bpm_t;                         /* .. the page comes back whole when it goes */
+        pre_tick();
+        ui.force = !ui.bpm_t;                           /* .. the page comes back whole when it goes */
         return;
     }
     if (ui.saved_t && !ui.confirm && !name_on()) {      /* MRC: SAVED, full screen, after SAVE + OCT+ */
@@ -1771,8 +1775,6 @@ static void ui_draw_page(uint32_t counting)
         if (ui.hot_t)
             ui.hot_t--;
         pre_tick();
-        if (ui.bpm_t)
-            ui.bpm_t--;
         ui.force = 0;
         return;
     }
@@ -1796,8 +1798,6 @@ static void ui_draw_page(uint32_t counting)
         ui.msg_t = 60;
     }
     pre_tick();
-    if (ui.bpm_t)
-        ui.bpm_t--;
     if (ui.hot_t)
         ui.hot_t--;
     if (ui.help_t)

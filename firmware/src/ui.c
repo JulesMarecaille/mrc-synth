@@ -184,7 +184,8 @@ static struct {
     uint8_t force;               /* full redraw pending */
     uint8_t msg_t;               /* transient message frames */
     uint8_t help_t;              /* 1.5, MENU > HELP ON: frames the page's hint stays in the footer (ui_help.c) */
-    uint8_t bpm_t;               /* frames the BPM stays highlighted after a SELECT turn */
+    uint8_t bpm_t;               /* the tempo is full screen after a SELECT turn or TAP (until BPM_MS after bpm_ms) */
+    uint32_t bpm_ms;             /* MRC: its last change (fm1_ms): time, not frames, as pre_ms */
     uint8_t saved_t;             /* MRC: frames SAVED stays full screen after SAVE + OCT+ (ui_draw.c draw_saved_full) */
     uint8_t pre_t;               /* MRC: the sound list is full screen after a PRESETS turn (until PRE_MS after pre_ms) */
     uint32_t pre_ms;             /* MRC: its last detent (fm1_ms). Time, not frames: the device draws that full screen

@@ -412,7 +412,8 @@ static void ui_leds(void)
         led_put(nl, panel.btn[B_FX], 1);                /* FX LATCH: lit while an effect or a macro is on */
     if (ui.layer)                                       /* the layer's button breathes while its map is up */
         led_put(nb, panel.btn[layer_btn()], 1);
-    led_put(nl, panel.btn[B_REC], song.rec != 0u && ui.layer != LAYER_REC);   /* (its layer: it breathes) */
+    led_put(nl, panel.btn[B_REC], ((song.rec >> song.sel) & 1u) && ui.layer != LAYER_REC);   /* MRC: the selected
+                                                         * track armed (a tap disarms it: dark); its layer: it breathes */
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)((k >> 1) & 1u));
@@ -1729,7 +1730,8 @@ static void ui_input(void)
         } else if (glo || !(ui_prefs & PREF_BPM_LOCK)) {
             song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
             ui.pre_t = 0;
-            ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
+            ui.bpm_t = 1;                               /* the tempo full screen; no message over it */
+            ui.bpm_ms = fm1_ms;
         } else {                                        /* MENU > BPM LOCK ON (#58): only with GLO held (and on HOME >
                                                          * CLOCK, GLO's F4 TAP); a turn burst says so once */
             if (!lock_ms || fm1_ms - lock_ms > 1000u)

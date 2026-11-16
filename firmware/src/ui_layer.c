@@ -157,7 +157,8 @@ static void layer_arm(uint32_t pressed, uint32_t now)
         if (pressed & ly_bit(l)) {
             ui.ly = (uint8_t)l;
             ui.ly_t0 = (now & ~15u) | 1u | (layer_allowed() ? 0u : LY_DEAD);
-            lys.dtap = lys.dt_l == l && fm1_ms - lys.dt_ms <= LY_DTAP_MS;   /* (#83: the second tap of a double tap?) */
+            lys.dtap = 0;                               /* MRC: no double-tap lock (#83): a layer opens held only, a
+                                                         * second tap is a tap (REC disarms) */
             lys.dt_l = 0;
             return;
         }
@@ -382,7 +383,8 @@ static void glo_tap(void)
     if (n >= 3u && lys.tap[n - 1u] != lys.tap[0]) {
         song.g[G_BPM] = (int16_t)clamp((int32_t)(60000u * (n - 1u) / (lys.tap[n - 1u] - lys.tap[0])),
                                        GP[G_BPM].min, GP[G_BPM].max);
-        ui.bpm_t = 40;
+        ui.bpm_t = 1;
+        ui.bpm_ms = fm1_ms;
     }
 }
 

@@ -870,8 +870,8 @@ static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_
 
 /* MRC: PUMP (G_PUMP, the DRUM grid's KNOB 3), a sidechain: the DRUM parts' level ducks every other part. Each DRUM
  * part's block peak after its LEVEL (mix_part, mix_spread: pump_pk) feeds one envelope (pump_block: instant attack,
- * ~190 ms release), full at PUMP_T (a kick at its default LEVEL gets there), bent so the duck holds deep and comes
- * back late (1 - (1 - e)^2: a pump, not a dip); the other parts' LEVEL is ramped across the next block from the
+ * ~46 ms release), full at PUMP_T (a kick at its default LEVEL gets there), bent so the duck holds deep a moment then
+ * snaps back (1 - (1 - e)^2: deep for ~30 ms, back by ~120 ms); the other parts' LEVEL is ramped across the next block from the
  * last block's gain to the one the envelope gives (a block late: CTL samples, the ramp is the attack, no click), and
  * so are the buses' returns and HALL's side (pump_wet): the CHORUS / DELAY / REVERB tails duck too, post effect, not
  * only what goes into them. PUMP 127 and a full envelope: silence at the hit. PUMP 0: gain 1, the mix bit for bit as
@@ -890,7 +890,7 @@ static void pump_block(uint32_t n)
             pk = pump_pk[i];
         pump_pk[i] = 0;
     }
-    e -= ((e * (int32_t)n) >> 13) + (e > 0);            /* (CTL 32: e / 256 a block, 186 ms) */
+    e -= ((e * (int32_t)n) >> 11) + (e > 0);            /* (CTL 32: e / 64 a block, 46 ms) */
     if (pk > PUMP_T)
         pk = PUMP_T;
     pump_env = e = pk > e ? pk : e;
