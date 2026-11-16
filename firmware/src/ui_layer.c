@@ -1240,7 +1240,9 @@ static void draw_layer(void)
     {
         uint32_t p;
         sig += (perf_kill ? 0u : perf_held | perf_latched | perf_rmt) * 31u + perf_latch_on * 11u + perf_act * 131u + perf_avail() * 7u +
-               fx_key_held() * 4099u;
+               fx_key_held() * 4099u +                  /* MRC: the black keys' cells are P_MUTE now (GLO's), the solos too */
+               ((perf_solo | perf_rsolo) * 37u + (uint32_t)(trk[0].p[P_MUTE] | trk[1].p[P_MUTE] << 1 | trk[2].p[P_MUTE] << 2 |
+                                                           trk[3].p[P_MUTE] << 3)) * 65537u;
         for (p = 0; p < PF_KEYS; p++)                   /* (the key map) */
             sig = sig * 33u + perf_map[p];
     }
