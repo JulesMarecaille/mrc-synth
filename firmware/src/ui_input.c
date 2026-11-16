@@ -1170,12 +1170,17 @@ static uint32_t oct_taps(uint32_t pressed, int here)
 /* SEQ step entry = step recording (1.2, Discussion #133: only with the track armed and the transport stopped), acid
  * style: the keys pressed together (POLY: up to 4 notes, MONO: the last one) become the cursor step; releasing all
  * keys moves on one step (wrapping inside LEN). With CHRD on a key writes what it sounds, as live recording does:
- * POLY its chord, MONO the chord's root (MRC: upstream's CHORD ENTRY ADD, a key adding to the step, is gone) */
+ * POLY its chord, MONO the chord's root (MRC: upstream's CHORD ENTRY ADD, a key adding to the step, is gone).
+ * MRC: a first key whose note the cursor step holds already takes it out instead (its chord's notes, CHRD on); the
+ * keys pressed with it, the same; the step left without a note is cleared (step_clear) and the cursor stays */
 static void seq_entry(uint32_t pressed)
 {
+    static uint8_t del;                                   /* MRC: keys held that took notes out (no entry opened) */
     track_t *t = TSEL;
     step_t *st = &t->step[ui.cursor];
     uint32_t k;
+    if (del && !(fm1_in.notes & ~(kb_layer | kb_flav)))
+        del = 0;
     for (k = 0; k < 27u; k++) {
         uint8_t ch[CHORD_MAX];
         int32_t r;
@@ -1186,13 +1191,31 @@ static void seq_entry(uint32_t pressed)
         note = kb_map(t, k);
         if (note == KB_SILENT)
             continue;
+        n = chord_make(t, note, ch, &r, &mask);        /* (CHRD OFF, a kit: the note alone; MONO: the root) */
+        if (!ui.entry_open && (del || st->time == ST_NOTE)) {   /* MRC: a note the step holds: out (a toggle) */
+            uint32_t out = 0;
+            for (i = 0; i < n && st->time == ST_NOTE; i++)
+                for (j = 0; j < st->n && j < 4u; j++)
+                    if (st->note[j] == ch[i]) {
+                        for (st->n--; j < st->n; j++)
+                            st->note[j] = st->note[j + 1u];
+                        out = 1;
+                        break;
+                    }
+            if (out || del) {                             /* (del: a key pressed with it adds nothing) */
+                del = 1;
+                if (!st->n && !st->hit)
+                    step_clear(st);
+                last_note = (uint8_t)note;
+                continue;
+            }
+        }
         if (!ui.entry_open) {
             ui.entry_open = 1;
             follow_hold();                                /* (1.6, #242) */
             st->n = 0;
             st->time = ST_NOTE;
         }
-        n = chord_make(t, note, ch, &r, &mask);        /* (CHRD OFF, a kit: the note alone; MONO: the root) */
         if (t->p[P_VOICE] && !ENGINES[t->engine]->oneshot) {   /* (drums: hits stack as a chord) */
             st->note[0] = ch[0];
             st->n = 1;
@@ -1252,7 +1275,8 @@ static void presets_turn(int32_t s)
         if (!ui.home)                                     /* (PRESETS: its panel is the list already) */
             return;
         presets_full();
-    } else if (g == GR_ROLL || g == GR_USER || g == GR_PSAVE || g == GR_PATS || g == GR_SONG) {
+    } else if (g == GR_USER || g == GR_PSAVE || g == GR_PATS || g == GR_SONG) {   /* (MRC: not STEP, whose
+                                                         * KNOB 1 is the cursor already: PRESETS loads a sound there) */
         edit_param(0, s);                                 /* KNOB 1's (STEP: STOP TO EDIT while a song plays) */
         ui.hot_col = 0;
         ui.hot_t = 40;

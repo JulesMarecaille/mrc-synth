@@ -6,8 +6,8 @@
  * gives them (perf_map: the settings, ui_layer.c; any effect on any key, or none). The default (PF_DEF, 1.1.5's
  * keys and the two of 1.2 after them):
  *   REPEAT 1/8 1/16 1/32, REVERSE, LPF | HPF, TAPE STOP, FREEZE, OCT UP, OCT DN, FLANGER, PHASER, REV THROW, ECHO
- *   THROW (1.5.1, D5 E5);  the other 2 white keys nothing; black keys 1..4 (F#3 G#3 A#3 C#4): tracks 1..4 muted while
- *   held (not P_MUTE, never saved).
+ *   THROW (1.5.1, D5 E5);  the other 2 white keys nothing; black keys 1..4 (F#3 G#3 A#3 C#4): MRC: tracks 1..4's
+ *   P_MUTE toggled, the same mute as GLO's black keys (ui_layer.c layer_key). The PF_M1.. bits are the solos' now.
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
  * ECHO THROW also lifts the delay's feedback to 0.7 if it is lower (fx.c fx_buses); both glide in and out over 11.6 ms
  * (THR_SLOPE). Let go, the sends are the tracks' own again and what the buses hold rings out. The buses are the song's
@@ -186,8 +186,8 @@ static void perf_press(uint32_t e, int down)
 {
     if (e >= PF_N)
         return;
-    if (perf_latch_on || e >= PF_M1) {    /* FX LATCH: a press turns it on or off, letting go does nothing (MRC: the
-                                           * track mutes of the black keys always, as GLO's: FX LATCH or not) */
+    if (perf_latch_on) {                  /* FX LATCH: a press turns it on or off, letting go does nothing (MRC: the
+                                           * black keys are no effect: they toggle P_MUTE, ui_layer.c layer_key) */
         if (down) {
             perf_latched ^= PF_BIT(e);
             perf_ord[e] = ++perf_seq;

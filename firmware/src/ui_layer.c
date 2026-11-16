@@ -637,10 +637,10 @@ static uint32_t eqa_sig(void)
 static void layer_key(uint32_t l, uint32_t k)
 {
     uint32_t p = key_place(k), i;
-    if (l == LAYER_FX) {
-        if (!key_black(k) && p < PF_KEYS)
+    if (l == LAYER_FX && !key_black(k)) {
+        if (p < PF_KEYS)
             lys.fxk = (uint8_t)(k + 1u);                /* (PRESETS assigns it while held) */
-    } else if (l == LAYER_GLO) {
+    } else if (l == LAYER_FX || l == LAYER_GLO) {       /* MRC: FX's black keys are GLO's: the same P_MUTE */
         if (key_black(k)) {
             if (p < NTRK)
                 trk[p].p[P_MUTE] = (int16_t)!trk[p].p[P_MUTE];
@@ -846,7 +846,7 @@ static uint32_t layer_leds(uint32_t *br)
     for (k = 0; k < 27u; k++) {
         uint32_t p = key_place(k), b = (uint32_t)key_black(k), on = 0, can = 0, e;
         if (l == LAYER_FX && b) {                       /* black keys: lit while their track sounds, dark when muted (or held) */
-            on = p < NTRK && glo_sounding(p) && !((held >> (PF_M1 + p)) & 1u);
+            on = p < NTRK && glo_sounding(p);           /* (P_MUTE, as GLO's) */
         } else if (l == LAYER_FX) {                     /* effects breathe, held lit, a too-long REPEAT dark */
             e = perf_key(k);
             can = e < PF_N && ((ok >> e) & 1u);
@@ -1001,7 +1001,7 @@ static void layer_fx(void)
     for (e = 0; e < NTRK; e++) {                        /* the mutes of the black keys 1..4 */
         bnote(n, e);
         lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0,   /* (MRC: a sounding track in the accent, a muted one dim) */
-              (held >> (PF_M1 + e)) & 1u || !glo_sounding(e) ? LS_DIM : LS_HELD, 0);
+              glo_sounding(e) ? LS_HELD : LS_DIM, 0);          /* (P_MUTE, as GLO's) */
     }
 }
 static void layer_glo(void)
